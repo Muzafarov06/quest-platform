@@ -1,0 +1,24 @@
+# Конфигурация для профиля dev.
+
+spring:
+  datasource:
+    # На Railway берём из переменных окружения.
+    # Локально (когда переменных нет) — падаем на docker-compose.
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/quest_platform}
+    username: ${DATABASE_USERNAME:quest}
+    password: ${DATABASE_PASSWORD:abc123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      pool-name: QuestHikariPool
+
+  flyway:
+    clean-disabled: true
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
+    com.zaxxer.hikari: INFO

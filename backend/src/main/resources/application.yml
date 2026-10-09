@@ -1,0 +1,68 @@
+# Основной конфигурационный файл Spring Boot.
+# Здесь — настройки, одинаковые для всех окружений.
+# Специфика окружения — в application-{profile}.yml.
+
+spring:
+  application:
+    name: quest-platform-backend
+
+  # Какой профиль активен по умолчанию.
+  # При запуске можно переопределить: --spring.profiles.active=prod
+  profiles:
+    active: dev
+
+  # ---------- JPA / Hibernate ----------
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        default_batch_fetch_size: 20
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+  # ---------- Flyway (миграции БД) ----------
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    out-of-order: false
+    validate-on-migrate: true
+    baseline-on-migrate: false
+
+# ---------- Настройки сервера ----------
+server:
+  port: 8080
+
+# ---------- Настройки приложения ----------
+app:
+  frontend-url: ${APP_FRONTEND_URL:http://localhost:5173}
+
+  jwt:
+    secret: ${JWT_SECRET:dev_only_change_me_to_long_random_string_at_least_32_chars}
+    access-ttl-minutes: ${JWT_ACCESS_TTL_MINUTES:15}
+
+  s3:
+    endpoint: ${S3_ENDPOINT:http://localhost:8333}
+    access-key: ${S3_ACCESS_KEY:any}
+    secret-key: ${S3_SECRET_KEY:any}
+    bucket: ${S3_BUCKET:quest-media}
+    region: ${S3_REGION:us-east-1}
+    presigned-url-ttl-minutes: 60
+
+  livekit:
+    url: ${LIVEKIT_URL:wss://quest-platform-fkt48pq6.livekit.cloud}
+    api-key: ${LIVEKIT_API_KEY:placeholder}
+    api-secret: ${LIVEKIT_API_SECRET:placeholder}
+    token-ttl-seconds: 3600
+
+# ---------- Логирование ----------
+logging:
+  level:
+    root: INFO
+    com.questplatform: DEBUG
