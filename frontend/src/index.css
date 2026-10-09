@@ -1,0 +1,623 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Razgadka — «Детективная доска».
+   Оптимизировано: без blur, без SVG-шума, только градиенты.
+   ============================================================ */
+
+@theme {
+  --color-ink:           #0a0907;
+  --color-ink-soft:      #131109;
+  --color-ink-card:      #191610;
+  --color-ink-line:      #2b2519;
+  --color-ink-elevated:  #1d1913;
+  --color-ink-hover:     #252015;
+
+  --color-paper:         #ede1c4;
+  --color-paper-dark:    #d9c9a3;
+  --color-paper-edge:    #b9a679;
+
+  --color-ink-text:      #2a2318;
+  --color-ink-text-soft: #4d4029;
+  --color-ink-text-dim:  #786a4c;
+
+  --color-blood:         #9c1c1c;
+  --color-blood-hover:   #b82828;
+  --color-blood-soft:    #5e0e0e;
+  --color-blood-deep:    #3a0808;
+
+  --color-brass:         #c9a24a;
+  --color-brass-hover:   #ddb85c;
+  --color-brass-soft:    #6a5424;
+  --color-copper:        #a8703c;
+
+  --color-bone:          #ece2c9;
+  --color-bone-muted:    #b3a98c;
+  --color-bone-dim:      #7d7362;
+
+  --color-success: #4a8a4a;
+  --color-warning: #d4a53d;
+  --color-danger:  #c94242;
+
+  --font-poster:  'Anton', 'Oswald', system-ui, sans-serif;
+  --font-display: 'Anton', 'Oswald', system-ui, sans-serif;
+  --font-type:    'Special Elite', 'Courier New', monospace;
+  --font-hand:    'Caveat', 'Brush Script MT', cursive;
+  --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+  --font-body:    'Inter', system-ui, -apple-system, sans-serif;
+
+  --shadow-paper:      0 10px 34px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-paper-lift: 0 24px 60px rgba(0, 0, 0, 0.65), 0 3px 8px rgba(0, 0, 0, 0.5);
+  --shadow-thread:     0 1px 2px rgba(0, 0, 0, 0.6);
+  --shadow-pin:        0 1px 3px rgba(0, 0, 0, 0.7);
+  --shadow-deep:       0 30px 80px rgba(0, 0, 0, 0.75);
+}
+
+/* ============================================================
+   База
+   ============================================================ */
+
+html { background-color: var(--color-ink); scroll-behavior: smooth; }
+
+body {
+  background-color: var(--color-ink);
+  color: var(--color-bone);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-poster);
+  letter-spacing: 0.005em;
+  line-height: 0.88;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+
+/* ============================================================
+   Типографика
+   ============================================================ */
+
+.kicker {
+  font-family: var(--font-type);
+  font-size: 0.85rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--color-bone-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+.kicker::before {
+  content: '';
+  display: inline-block;
+  width: 2rem;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.6;
+}
+.section-cream .kicker,
+.section-kraft .kicker { color: var(--color-ink-text-dim); }
+
+.hand {
+  font-family: var(--font-hand);
+  color: var(--color-blood);
+  font-weight: 700;
+  font-size: 1.4em;
+  line-height: 1;
+  letter-spacing: 0.005em;
+  transform: rotate(-1.5deg);
+  display: inline-block;
+  text-transform: none;
+}
+
+.type { font-family: var(--font-type); letter-spacing: 0.06em; }
+.serif { font-family: var(--font-hand); font-style: italic; font-weight: 500; }
+
+/* ============================================================
+   Текстура на заголовках — 4 варианта
+   Только градиент + background-clip, без SVG и без filter.
+   Дёшево для GPU.
+   ============================================================ */
+
+/* На тёмном фоне — светлая костяная */
+.text-texture-bone {
+  background-image: linear-gradient(180deg, #f6ecd2 0%, #c8b384 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* На тёмном фоне — насыщенная красная */
+.text-texture-blood {
+  background-image: linear-gradient(180deg, #c82a2a 0%, #6e0e0e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* На светлом фоне — тёмная «чернила» */
+.text-texture-ink {
+  background-image: linear-gradient(180deg, #3a2f1e 0%, #16100a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* На светлом фоне — глубокая красная */
+.text-texture-blood-deep {
+  background-image: linear-gradient(180deg, #b02020 0%, #5e0e0e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* ============================================================
+   Пергамент / бумага
+   ============================================================ */
+
+.paper {
+  position: relative;
+  background: var(--color-paper);
+  color: var(--color-ink-text);
+  box-shadow: var(--shadow-paper);
+}
+.paper::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  mix-blend-mode: multiply;
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(139, 90, 40, 0.14), transparent 45%),
+    radial-gradient(circle at 85% 70%, rgba(139, 90, 40, 0.10), transparent 50%);
+}
+.paper-fresh { background: linear-gradient(180deg, #f5ebd0 0%, #e9dcb9 100%); }
+.paper-old   { background: linear-gradient(180deg, #ddca9f 0%, #c9b389 100%); }
+
+.photo-corner {
+  position: absolute;
+  width: 16px; height: 16px;
+  background: linear-gradient(135deg, rgba(30, 25, 15, 0.92) 50%, transparent 51%);
+  pointer-events: none;
+}
+.photo-corner.tl { top: 0; left: 0; }
+.photo-corner.tr { top: 0; right: 0; transform: rotate(90deg); }
+.photo-corner.br { bottom: 0; right: 0; transform: rotate(180deg); }
+.photo-corner.bl { bottom: 0; left: 0; transform: rotate(270deg); }
+
+.pin {
+  position: absolute;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 30%, #e44a4a 0%, #8e1a1a 45%, #4a0808 100%);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.7),
+    0 1px 1px rgba(255, 255, 255, 0.15) inset,
+    0 -1px 2px rgba(0, 0, 0, 0.5) inset;
+  z-index: 10;
+}
+.pin::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 1.5px; height: 5px;
+  background: rgba(0, 0, 0, 0.75);
+  transform: translate(-50%, 6px);
+}
+.pin.brass {
+  background: radial-gradient(circle at 32% 30%, #f0d47a 0%, #c9a24a 45%, #6a5424 100%);
+}
+
+.tape {
+  position: absolute;
+  width: 76px; height: 24px;
+  background: linear-gradient(
+    180deg,
+    rgba(237, 225, 196, 0.62) 0%,
+    rgba(237, 225, 196, 0.48) 100%
+  );
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transform: rotate(-4deg);
+  pointer-events: none;
+}
+
+.stamp {
+  display: inline-block;
+  border: 2px solid currentColor;
+  padding: 0.3rem 0.85rem;
+  font-family: var(--font-type);
+  font-size: 0.78rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  transform: rotate(-3deg);
+  box-shadow: inset 0 0 0 1px currentColor;
+  opacity: 0.92;
+}
+.stamp-red {
+  display: inline-block;
+  border: 3px double var(--color-blood);
+  padding: 0.4rem 1rem;
+  font-family: var(--font-type);
+  font-size: 0.95rem;
+  letter-spacing: 0.22em;
+  color: var(--color-blood);
+  text-transform: uppercase;
+  transform: rotate(-4deg);
+  background: rgba(142, 26, 26, 0.05);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--color-paper);
+  color: var(--color-ink-text);
+  padding: 0.4rem 0.8rem 0.4rem 1rem;
+  font-family: var(--font-type);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%);
+}
+
+.section-mark {
+  position: absolute;
+  top: 1.5rem; right: 1.5rem;
+  font-family: var(--font-type);
+  font-size: 0.75rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--color-bone-dim);
+  transform: rotate(3deg);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.section-mark::before {
+  content: '';
+  width: 1.25rem; height: 1px;
+  background: currentColor;
+  opacity: 0.6;
+}
+.section-cream .section-mark,
+.section-kraft .section-mark { color: var(--color-ink-text-dim); }
+
+.thread {
+  position: relative;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-blood-soft) 8%,
+    var(--color-blood) 50%,
+    var(--color-blood-soft) 92%,
+    transparent 100%
+  );
+}
+
+/* ============================================================
+   Фон-доска — с isolation для корректного z-index
+   ============================================================ */
+
+.bg-board {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--color-ink);
+}
+
+.bg-board::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(10, 9, 7, 0.82) 0%,
+      rgba(10, 9, 7, 0.72) 40%,
+      rgba(10, 9, 7, 0.88) 100%
+    ),
+    url('/images/detective-board.png');
+  background-size: cover;
+  background-position: center 35%;
+  background-repeat: no-repeat;
+}
+
+/* ============================================================
+   Подложки секций
+   ============================================================ */
+
+.section-cream,
+.section-kraft,
+.section-dark { position: relative; }
+
+.section-cream {
+  background: linear-gradient(180deg, #f0e6cc 0%, #e3d5af 100%);
+  color: var(--color-ink-text);
+}
+
+.section-kraft {
+  background: linear-gradient(180deg, #d6c295 0%, #b39c6c 100%);
+  color: var(--color-ink-text);
+}
+
+.section-dark {
+  background: linear-gradient(
+    180deg,
+    rgba(10, 9, 7, 0.55) 0%,
+    rgba(22, 8, 8, 0.75) 100%
+  );
+  color: var(--color-bone);
+}
+
+/* ============================================================
+   Утилиты
+   ============================================================ */
+
+.shadow-paper-lift { box-shadow: var(--shadow-paper-lift); }
+
+/* Hover-lift — только transform, без rotation reset */
+.lift {
+  transition: transform 300ms ease;
+}
+.lift:hover {
+  transform: translateY(-3px);
+}
+
+/* ============================================================
+   ФИКС: белый фон инпутов после автозаполнения
+   ============================================================ */
+
+input.paper-input:autofill,
+input.paper-input:autofill:hover,
+input.paper-input:autofill:focus,
+input.paper-input:autofill:active {
+  background-color: transparent !important;
+  color: var(--color-ink-text) !important;
+  -webkit-text-fill-color: var(--color-ink-text) !important;
+  caret-color: var(--color-blood) !important;
+  box-shadow: 0 0 0 1000px var(--color-paper) inset !important;
+  font-family: var(--font-type) !important;
+  transition: background-color 9999s ease-in-out 0s;
+}
+input.dark-input:autofill,
+input.dark-input:autofill:hover,
+input.dark-input:autofill:focus {
+  background-color: transparent !important;
+  color: var(--color-bone) !important;
+  -webkit-text-fill-color: var(--color-bone) !important;
+  caret-color: var(--color-blood) !important;
+  box-shadow: 0 0 0 1000px var(--color-ink-soft) inset !important;
+  transition: background-color 9999s ease-in-out 0s;
+}
+input.paper-input:-webkit-autofill,
+input.paper-input:-webkit-autofill:hover,
+input.paper-input:-webkit-autofill:focus,
+input.paper-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--color-paper) inset !important;
+  -webkit-text-fill-color: var(--color-ink-text) !important;
+  caret-color: var(--color-blood) !important;
+  font-family: var(--font-type) !important;
+  font-size: 1.125rem !important;
+  transition: background-color 9999s ease-in-out 0s;
+}
+input.dark-input:-webkit-autofill,
+input.dark-input:-webkit-autofill:hover,
+input.dark-input:-webkit-autofill:focus,
+input.dark-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--color-ink-soft) inset !important;
+  -webkit-text-fill-color: var(--color-bone) !important;
+  caret-color: var(--color-blood) !important;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+/* ============================================================
+   Анимации
+   ============================================================ */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-fade-in { animation: fade-in 200ms ease-out both; }
+
+/* ============================================================
+   Скроллбар и выделение
+   ============================================================ */
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--color-ink-soft); }
+::-webkit-scrollbar-thumb { background: var(--color-ink-line); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-blood-soft); }
+
+::selection {
+  background: var(--color-blood);
+  color: var(--color-paper);
+}
+
+/* ============================================================
+   Number input — убираем нативные стрелки (используем свои)
+   ============================================================ */
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ============================================================
+   Скроллбар внутри пергаментных форм (textarea)
+   ============================================================ */
+
+.paper textarea::-webkit-scrollbar,
+.paper .scroll-paper::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.paper textarea::-webkit-scrollbar-track,
+.paper .scroll-paper::-webkit-scrollbar-track {
+  background: rgba(42, 35, 24, 0.10);
+}
+
+.paper textarea::-webkit-scrollbar-thumb,
+.paper .scroll-paper::-webkit-scrollbar-thumb {
+  background: rgba(156, 28, 28, 0.55);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 6px;
+}
+
+.paper textarea::-webkit-scrollbar-thumb:hover,
+.paper .scroll-paper::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 28, 28, 0.85);
+  background-clip: padding-box;
+}
+
+/* Firefox */
+.paper textarea,
+.paper .scroll-paper {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 28, 28, 0.55) rgba(42, 35, 24, 0.10);
+}
+
+/* ============================================================
+   Скроллбар для карты локаций — тёмный, латунный ползунок
+   ============================================================ */
+
+.scroll-map::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.scroll-map::-webkit-scrollbar-track {
+  background: rgba(10, 9, 7, 0.6);
+  border-left: 1px solid rgba(201, 162, 74, 0.15);
+  border-top: 1px solid rgba(201, 162, 74, 0.15);
+}
+
+.scroll-map::-webkit-scrollbar-corner {
+  background: rgba(10, 9, 7, 0.6);
+}
+
+.scroll-map::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    rgba(201, 162, 74, 0.75) 0%,
+    rgba(168, 112, 60, 0.85) 100%
+  );
+  border: 2px solid rgba(10, 9, 7, 0.9);
+  border-radius: 6px;
+  background-clip: padding-box;
+}
+
+.scroll-map::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(201, 162, 74, 1) 0%,
+    rgba(168, 112, 60, 1) 100%
+  );
+  background-clip: padding-box;
+}
+
+/* Firefox */
+.scroll-map {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 162, 74, 0.7) rgba(10, 9, 7, 0.6);
+}
+
+/* ============================================================
+   Выпадающие списки — в стиле пергаментной формы.
+   Все состояния перебиваем через !important — иначе браузер
+   рисует свой системный фон (белый или синий).
+   ============================================================ */
+
+select {
+  color-scheme: light;
+}
+
+select option {
+  background-color: #d9c9a3 !important;
+  background-image: none !important;
+  color: #2a2318 !important;
+  font-family: 'Special Elite', 'Courier New', monospace;
+  font-size: 15px;
+  letter-spacing: 0.03em;
+  padding: 10px 14px;
+  border: none !important;
+}
+
+/* Наведение и фокус — латунная подсветка, не белая */
+select option:hover,
+select option:focus,
+select option:focus-visible,
+select option:active {
+  background-color: #c9b389 !important;
+  background-image: linear-gradient(0deg, #c9b389 0%, #c9b389 100%) !important;
+  color: #1a1408 !important;
+}
+
+/* Выбранный — чуть глубже, тоже не белый */
+select option:checked {
+  background-color: #b9a679 !important;
+  background-image: linear-gradient(0deg, #b9a679 0%, #b9a679 100%) !important;
+  color: #1a1408 !important;
+}
+
+/* Пункт, который браузер считает «под курсором» при открытии меню */
+select option:is(:hover, :focus, :checked):not(:disabled) {
+  background-color: #c9b389 !important;
+  background-image: linear-gradient(0deg, #c9b389 0%, #c9b389 100%) !important;
+  color: #1a1408 !important;
+}
+
+/* Отключённые — приглушённые */
+select option:disabled {
+  background-color: #d9c9a3 !important;
+  background-image: none !important;
+  color: #786a4c !important;
+}
+
+/* Firefox фокус-обводка не должна пропускать прозрачный текст */
+select:-moz-focusring {
+  color: transparent;
+  text-shadow: 0 0 0 #2a2318;
+}
+
+/* У самого select в пергаментной форме — без рамки */
+.paper select {
+  border: none;
+  outline: none;
+  box-shadow: none;
+  background-color: transparent;
+}
+
+.paper select:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Chrome/Edge — убираем синюю рамку вокруг поля */
+select:focus::-ms-value {
+  background-color: transparent;
+  color: #2a2318;
+}
+
