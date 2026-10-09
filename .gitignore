@@ -65,8 +65,8 @@ clean.sql
 disable_fk.sql
 enable_fk.sql
 fix_user_roles.sql
-V1__schema.sql
-V2__seed.sql
+/V1__schema.sql
+/V2__seed.sql
 
 # Секреты S3
 seaweedfs-s3.json
