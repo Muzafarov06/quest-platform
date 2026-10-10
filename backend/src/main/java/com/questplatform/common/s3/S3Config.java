@@ -13,14 +13,19 @@ import java.net.URI;
 /**
  * Конфигурация S3-клиента.
  *
- * <p>Создаёт бин {@link S3Client} для работы с S3-совместимым хранилищем.
- * Подходит для AWS S3, MinIO, SeaweedFS, Yandex Object Storage.</p>
+ * <p>Создаёт бин {@link S3Client} для работы с S3-совместимым хранилищем.</p>
  *
  * <p>Важно: {@code chunkedEncodingEnabled(false)} — AWS SDK по умолчанию
  * загружает объекты со streaming-подписью, и S3-сервер возвращает заголовок
  * {@code Content-Encoding: aws-chunked}. Настоящий AWS S3 это понимает,
- * а SeaweedFS — нет: браузер пытается распаковать ответ и получает битые
- * данные. Поэтому chunked-encoding отключён глобально.</p>
+ * а некоторые S3-совместимые хранилища — нет: браузер пытается распаковать
+ * ответ и получает битые данные. Поэтому chunked-encoding отключён глобально.</p>
+ *
+ * <p>Важно: {@code pathStyleAccessEnabled(false)} — Railway Buckets (и AWS S3)
+ * используют virtual-hosted-style доступ, когда имя бакета является
+ * поддоменом endpoint'а: {@code https://<bucket>.<endpoint>/...}.
+ * При {@code true} SDK строит URL вида {@code https://<endpoint>/<bucket>/...},
+ * и Railway отвечает 404 NoSuchBucket.</p>
  */
 @Configuration
 public class S3Config {
@@ -35,11 +40,12 @@ public class S3Config {
                 .region(Region.of(props.getRegion()))
                 .serviceConfiguration(
                         S3Configuration.builder()
-                                // Path-style для локальных S3-совместимых хранилищ.
-                                // AWS использует virtual-hosted style, но MinIO/SeaweedFS — path-style.
-                                .pathStyleAccessEnabled(true)
-                                // Не отправлять chunked-encoding — иначе SeaweedFS
-                                // возвращает Content-Encoding: aws-chunked, и браузер
+                                // Railway Buckets / AWS S3 — virtual-hosted-style.
+                                // Для локального SeaweedFS/MinIO нужно true.
+                                .pathStyleAccessEnabled(false)
+                                // Не отправлять chunked-encoding — иначе некоторые
+                                // S3-совместимые хранилища возвращают
+                                // Content-Encoding: aws-chunked, и браузер
                                 // не может прочитать картинку.
                                 .chunkedEncodingEnabled(false)
                                 .build()

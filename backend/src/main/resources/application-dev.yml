@@ -2,8 +2,6 @@
 
 spring:
   datasource:
-    # На Railway берём из переменных окружения.
-    # Локально (когда переменных нет) — падаем на docker-compose.
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/quest_platform}
     username: ${DATABASE_USERNAME:quest}
     password: ${DATABASE_PASSWORD:abc123}
@@ -19,6 +17,8 @@ spring:
 
 logging:
   level:
-    org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE
+    # DEBUG/TRACE оставляем только для локальной разработки.
+    # На Railway переменная LOGGING_LEVEL_ORG_HIBERNATE_SQL=INFO отключит их.
+    org.hibernate.SQL: ${LOGGING_LEVEL_ORG_HIBERNATE_SQL:INFO}
+    org.hibernate.orm.jdbc.bind: ${LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND:INFO}
     com.zaxxer.hikari: INFO
