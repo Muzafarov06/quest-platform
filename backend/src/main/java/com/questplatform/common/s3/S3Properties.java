@@ -7,7 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Настройки S3-совместимого хранилища.
  *
- * <p>Читаются из application.yml с префиксом {@code app.s3}.</p>
+ * <p>Читаются из application.yml с префиксом {@code app.s3}.
+ * Значения приходят из environment variables (см. {@code .env}).</p>
  */
 @ConfigurationProperties(prefix = "app.s3")
 @Getter

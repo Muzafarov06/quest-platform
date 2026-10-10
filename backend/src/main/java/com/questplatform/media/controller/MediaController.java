@@ -1,9 +1,12 @@
 package com.questplatform.media.controller;
 
 import com.questplatform.media.dto.MediaResponse;
+import com.questplatform.media.dto.PresignUploadRequest;
+import com.questplatform.media.dto.PresignUploadResponse;
 import com.questplatform.media.entity.CaseMedia;
 import com.questplatform.media.service.MediaService;
 import com.questplatform.users.entity.User;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -36,7 +39,31 @@ public class MediaController {
     }
 
     /**
-     * Загрузить файл в кейс.
+     * Получить presigned PUT URL для прямой загрузки в S3.
+     *
+     * <p>Браузер:
+     * <ol>
+     *   <li>POST /api/admin/media/presign → получает uploadUrl и mediaId;</li>
+     *   <li>PUT {uploadUrl} с телом файла — грузит напрямую в S3;</li>
+     *   <li>mediaId сразу использует в UI.</li>
+     * </ol>
+     *
+     * <p>Только ADMIN.</p>
+     */
+    @PostMapping("/api/admin/media/presign")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<PresignUploadResponse> presignUpload(
+            @Valid @RequestBody PresignUploadRequest request,
+            @AuthenticationPrincipal User user
+    ) {
+        return ResponseEntity.ok(mediaService.createPresignedUpload(request, user));
+    }
+
+    /**
+     * Multipart-загрузка через backend.
+     *
+     * <p>Оставлена как fallback — но на больших файлах работает медленнее,
+     * чем прямая загрузка через presigned PUT. Используй /presign.</p>
      *
      * <p>Только ADMIN. Обычный пользователь получит 403.</p>
      */
