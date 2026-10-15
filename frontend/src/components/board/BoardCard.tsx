@@ -1,32 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMediaUrl } from '../../hooks/useMediaUrl';
-import type { BoardItem, BoardItemType } from '../../types/board';
+import type { BoardItem } from '../../types/board';
 
-/**
- * Ширина карточки. Увеличена с 240 до 300 — заголовки улик и заметок
- * должны помещаться целиком, без обрезки.
- */
-export const CARD_WIDTH = 300;
+/** Ширина карточки. */
+export const CARD_WIDTH = 320;
 
-/**
- * Высота карточки по типу. Пропорционально увеличена под новую ширину.
- * EVIDENCE — самая высокая (картинка + название + описание).
- */
-export const CARD_HEIGHT: Record<BoardItemType, number> = {
-  EVIDENCE: 440,
-  NOTE: 320,
-  HYPOTHESIS: 360,
-  QUESTION: 280,
-};
+/** Высота карточки улики (по типу не разделяем — все улики одного размера). */
+export const CARD_HEIGHT = 460;
 
 interface Props {
   item: BoardItem;
   zoom: number;
-  selected: boolean;
-  /** UUID медиа улики для превью. null — нет картинки. */
+  /** UUID медиа улики. */
   evidenceMediaId?: string | null;
-  onSelect: (id: string) => void;
-  onOpen: (item: BoardItem) => void;
   onDelete: (id: string) => void;
   onPositionChange: (id: string, x: number, y: number) => void;
   onDragStart?: () => void;
@@ -35,10 +21,7 @@ interface Props {
 export function BoardCard({
   item,
   zoom,
-  selected,
   evidenceMediaId = null,
-  onSelect,
-  onOpen,
   onDelete,
   onPositionChange,
   onDragStart,
@@ -64,7 +47,6 @@ export function BoardCard({
       if (e.button !== 0) return;
       if ((e.target as HTMLElement).closest('[data-card-action]')) return;
 
-      // Останавливаем событие, чтобы MapPanContainer не начал панорамирование.
       e.stopPropagation();
       e.preventDefault();
 
@@ -96,9 +78,6 @@ export function BoardCard({
       setDragging(false);
       if (dragStart.current.moved) {
         onPositionChange(item.id, pos.x, pos.y);
-      } else {
-        onSelect(item.id);
-        onOpen(item);
       }
     };
     window.addEventListener('mousemove', onMove);
@@ -107,21 +86,14 @@ export function BoardCard({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [dragging, zoom, item, onPositionChange, onSelect, onOpen, pos.x, pos.y]);
+  }, [dragging, zoom, item.id, onPositionChange, pos.x, pos.y]);
 
-  const H = CARD_HEIGHT[item.itemType];
+  const H = CARD_HEIGHT;
   const tilt = ((item.id.charCodeAt(0) + item.id.charCodeAt(1)) % 5) - 2;
-
-  /* Hover — лёгкий подъём и увеличение. Не мешает drag. */
   const hoverLift = hovered && !dragging ? 4 : 0;
-  const hoverScale = hovered && !dragging ? 1.02 : 1;
 
   return (
     <div
-      /**
-       * data-no-pan говорит MapPanContainer: «этот элемент перетаскиваем
-       * мы, не начинай панорамирование».
-       */
       data-no-pan="true"
       onMouseDown={onMouseDown}
       onMouseEnter={() => setHovered(true)}
@@ -136,48 +108,23 @@ export function BoardCard({
         width: CARD_WIDTH,
         height: H,
         willChange: 'transform',
-        transform: `translateY(-${hoverLift}px) scale(${hoverScale})`,
+        transform: `translateY(-${hoverLift}px)`,
         transformOrigin: 'top center',
-        transition: dragging
-          ? 'none'
-          : 'transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+        transition: dragging ? 'none' : 'transform 180ms ease-out',
       }}
     >
       {/* Булавка */}
       <div
-        className={
-          'pin ' +
-          (item.itemType === 'HYPOTHESIS' || item.itemType === 'QUESTION'
-            ? 'brass '
-            : '')
-        }
+        className="pin"
         style={{ top: -8, left: '50%', marginLeft: -7, zIndex: 20 }}
       />
 
-      {/* Тело карточки */}
       <div
         className="w-full h-full"
         style={{ transform: `rotate(${tilt}deg)`, transformOrigin: 'top center' }}
       >
-        {item.itemType === 'EVIDENCE' && (
-          <EvidenceVisual item={item} mediaId={evidenceMediaId} />
-        )}
-        {item.itemType === 'NOTE' && <NoteVisual item={item} />}
-        {item.itemType === 'HYPOTHESIS' && <HypothesisVisual item={item} />}
-        {item.itemType === 'QUESTION' && <QuestionVisual item={item} />}
+        <EvidenceVisual item={item} mediaId={evidenceMediaId} />
       </div>
-
-      {/* Оверлей выделения */}
-      {selected && (
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            border: '1px solid rgba(156,28,28,0.8)',
-            boxShadow:
-              '0 0 14px rgba(156,28,28,0.55), inset 0 0 14px rgba(156,28,28,0.15)',
-          }}
-        />
-      )}
 
       {/* Кнопка удаления */}
       {hovered && !dragging && (
@@ -205,7 +152,7 @@ export function BoardCard({
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Виды карточек — все в стиле пергамента сайта
+   Улика — единый вид для всех карточек
    ═══════════════════════════════════════════════════════════ */
 
 function EvidenceVisual({
@@ -219,12 +166,11 @@ function EvidenceVisual({
 
   return (
     <div className="paper paper-old relative w-full h-full flex flex-col p-4">
-      {/* Штамп «Улика» */}
       <div className="absolute -top-3 -right-3 rotate-[6deg] z-10">
         <span className="stamp-red text-[11px]">Улика</span>
       </div>
 
-      {/* Превью улики: фиксированная пропорция 4:3, object-contain. */}
+      {/* Превью */}
       <div className="relative w-full aspect-[4/3] mb-3 flex items-center justify-center">
         {url ? (
           <img
@@ -250,7 +196,7 @@ function EvidenceVisual({
 
       {/* Подпись */}
       <div className="flex-1 flex flex-col min-h-0">
-        <div className="type text-[11px] uppercase tracking-[0.24em] text-ink-text-dim mb-1.5">
+        <div className="type text-[10px] uppercase tracking-[0.24em] text-ink-text-dim mb-1.5">
           Улика
         </div>
         <div
@@ -269,96 +215,15 @@ function EvidenceVisual({
           </p>
         )}
       </div>
-    </div>
-  );
-}
 
-function NoteVisual({ item }: { item: BoardItem }) {
-  return (
-    <div className="paper paper-fresh relative w-full h-full flex flex-col p-5">
-      {/* Штамп «Заметка» */}
-      <div className="absolute top-3 right-3 z-10">
-        <span className="type text-[10px] uppercase tracking-[0.24em] text-ink-text-dim">
-          Заметка
+      {/* Кто нашёл */}
+      <div className="mt-3 pt-2 border-t border-dashed border-ink-text/25
+                      flex items-center gap-2">
+        <span className="shrink-0 text-base leading-none" aria-hidden="true">🖐</span>
+        <span className="type text-[10px] uppercase tracking-[0.22em]
+                         text-ink-text-dim truncate">
+          нашёл: <span className="text-blood">{item.createdByName ?? '—'}</span>
         </span>
-      </div>
-
-      {item.title && (
-        <div
-          className="font-poster text-[18px] leading-[1.15] text-ink-text mb-3 pr-16
-                     line-clamp-3 break-words"
-        >
-          {item.title}
-        </div>
-      )}
-
-      <div
-        className="flex-1 overflow-hidden"
-        style={{
-          fontFamily: 'var(--font-hand, cursive)',
-          color: 'rgba(42,35,24,0.88)',
-          fontSize: 24,
-          lineHeight: 1.15,
-          fontWeight: 500,
-        }}
-      >
-        <p className="whitespace-pre-line line-clamp-5 break-words">
-          {item.content ?? ''}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function HypothesisVisual({ item }: { item: BoardItem }) {
-  return (
-    <div className="paper paper-old relative w-full h-full flex flex-col p-5">
-      {/* Красная линия сверху */}
-      <div className="absolute top-0 left-4 right-4 h-px bg-blood/70" />
-
-      <div className="flex items-baseline justify-between gap-2 mb-3 mt-2">
-        <span className="type text-[11px] uppercase tracking-[0.26em] text-blood">
-          Гипотеза
-        </span>
-        <span className="hand text-[16px] text-blood/70 rotate-[-2deg]">
-          ?
-        </span>
-      </div>
-
-      {item.title && (
-        <div
-          className="font-poster text-[18px] leading-[1.15] text-ink-text mb-3
-                     line-clamp-3 break-words"
-        >
-          {item.title}
-        </div>
-      )}
-
-      <div
-        className="text-[14px] text-ink-text-soft leading-snug flex-1 overflow-hidden
-                   break-words"
-        style={{ fontFamily: 'var(--font-type, monospace)' }}
-      >
-        <p className="whitespace-pre-line line-clamp-6">{item.content ?? ''}</p>
-      </div>
-    </div>
-  );
-}
-
-function QuestionVisual({ item }: { item: BoardItem }) {
-  return (
-    <div className="paper paper-fresh relative w-full h-full flex flex-col items-center justify-center p-5">
-      <div className="font-poster text-[80px] leading-none text-blood/75 mb-1">
-        ?
-      </div>
-      <div className="type text-[11px] uppercase tracking-[0.26em] text-ink-text-dim mb-3">
-        Вопрос
-      </div>
-      <div
-        className="font-poster text-[16px] leading-tight text-ink-text text-center
-                   line-clamp-4 break-words"
-      >
-        {item.title ?? item.content ?? ''}
       </div>
     </div>
   );

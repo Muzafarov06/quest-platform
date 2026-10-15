@@ -1,11 +1,23 @@
 import { useCallback } from 'react';
 import { useSessionSocket } from './useSessionSocket';
-import type { SessionSocketEvent } from '../types/socket';
+import type {
+  SessionSocketEvent,
+  BoardItemMovedEvent,
+  BoardNoteUpdatedEvent,
+} from '../types/socket';
+
+interface Callbacks {
+  onItemMoved?: (event: BoardItemMovedEvent) => void;
+  onNoteUpdated?: (event: BoardNoteUpdatedEvent) => void;
+}
 
 export function useBoardSocket(
   sessionId: string | null | undefined,
-  onItemsChanged: () => void
+  onItemsChanged: () => void,
+  callbacks: Callbacks = {}
 ) {
+  const { onItemMoved, onNoteUpdated } = callbacks;
+
   const handler = useCallback(
     (event: SessionSocketEvent) => {
       if (
@@ -13,9 +25,17 @@ export function useBoardSocket(
         event.type === 'BOARD_ITEM_REMOVED'
       ) {
         onItemsChanged();
+        return;
+      }
+      if (event.type === 'BOARD_ITEM_MOVED') {
+        onItemMoved?.(event);
+        return;
+      }
+      if (event.type === 'BOARD_NOTE_UPDATED') {
+        onNoteUpdated?.(event);
       }
     },
-    [onItemsChanged]
+    [onItemsChanged, onItemMoved, onNoteUpdated]
   );
 
   useSessionSocket(sessionId, handler, !!sessionId);

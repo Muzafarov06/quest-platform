@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   getBoardItems,
-  getBoardConnections,
   deleteBoardItem,
+  moveBoardItem,
+  getBoardNote,
+  updateBoardNote,
 } from '../api/board';
 import { getSession } from '../api/sessions';
 import { useBoardSocket } from '../hooks/useBoardSocket';
@@ -14,28 +16,15 @@ import {
   CARD_HEIGHT,
 } from '../components/board/BoardCard';
 import { getEvidencesByCase } from '../api/evidences';
-import { useMediaUrl } from '../hooks/useMediaUrl';
-import { AddBoardItemModal } from '../components/board/AddBoardItemModal';
-import type {
-  BoardItem,
-  BoardConnection,
-  BoardItemType,
-} from '../types/board';
+import type { BoardItem } from '../types/board';
 import type { GameSession } from '../types/session';
 import type { ApiErrorResponse } from '../types/api';
 
-const CANVAS_W = 3200;
-const CANVAS_H = 2000;
+const CANVAS_W = 5000;
+const CANVAS_H = 3500;
 
-type FilterKey = 'ALL' | BoardItemType;
-
-const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: 'ALL', label: 'Всё' },
-  { key: 'EVIDENCE', label: 'Улики' },
-  { key: 'NOTE', label: 'Заметки' },
-  { key: 'HYPOTHESIS', label: 'Гипотезы' },
-  { key: 'QUESTION', label: 'Вопросы' },
-];
+const NOTE_DEBOUNCE_MS = 800;
+const NOTE_STALE_MS = 2500;
 
 export function BoardPage() {
   const { id } = useParams<{ id: string }>();
@@ -43,56 +32,61 @@ export function BoardPage() {
 
   const [session, setSession] = useState<GameSession | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
-  const [connections, setConnections] = useState<BoardConnection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  /* evidenceId → mediaId. Нужно, чтобы на карточках улик
-     отображалась картинка. */
+  /** evidenceId → mediaId. Картинки на карточках. */
   const [evidenceMediaMap, setEvidenceMediaMap] = useState<Map<string, string | null>>(
     new Map()
   );
 
-  const [filter, setFilter] = useState<FilterKey>('ALL');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [openItem, setOpenItem] = useState<BoardItem | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-
-  const [zoom, setZoom] = useState(1);
-  const contentRef = useRef<HTMLDivElement | null>(null);
-
+  /* Локальные позиции — для оптимистичного drag. */
   const [localPositions, setLocalPositions] = useState<
     Map<string, { x: number; y: number }>
   >(new Map());
 
+  /* Общая заметка. */
+  const [noteText, setNoteText] = useState('');
+  const [noteUpdater, setNoteUpdater] = useState<string | null>(null);
+  const [noteUpdatedAt, setNoteUpdatedAt] = useState<string | null>(null);
+  const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const noteDirtyRef = useRef(false);
+  const noteDebounceTimer = useRef<number | null>(null);
+
+  const [zoom, setZoom] = useState(1);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  const [toast, setToast] = useState<string | null>(null);
   const showToast = useCallback((text: string) => {
     setToast(text);
-    window.setTimeout(() => setToast(null), 2200);
+    window.setTimeout(() => setToast(null), 2000);
   }, []);
+
+  /* ---------- Загрузка ---------- */
 
   const reload = useCallback(async () => {
     if (!id) return;
     try {
-      const [s, list, conns] = await Promise.all([
+      const [s, list, note] = await Promise.all([
         getSession(id),
         getBoardItems(id),
-        getBoardConnections(id).catch(() => [] as BoardConnection[]),
+        getBoardNote(id).catch(() => ({ text: '', updatedByPlayerName: null, updatedAt: null })),
       ]);
       setSession(s);
       setItems(list);
-      setConnections(conns);
+      if (!noteDirtyRef.current) {
+        setNoteText(note.text ?? '');
+        setNoteUpdater(note.updatedByPlayerName);
+        setNoteUpdatedAt(note.updatedAt);
+      }
 
-      /* Загружаем улики кейса и строим карту evidenceId → mediaId. */
       try {
         const evidences = await getEvidencesByCase(s.caseId);
         const m = new Map<string, string | null>();
-        evidences.forEach((ev) => {
-          m.set(ev.id, ev.mediaId);
-        });
+        evidences.forEach((ev) => m.set(ev.id, ev.mediaId));
         setEvidenceMediaMap(m);
       } catch {
-        /* ignore — картинок просто не будет */
+        /* ignore */
       }
     } catch (err: unknown) {
       const apiError = err as { response?: { data?: ApiErrorResponse } };
@@ -107,7 +101,41 @@ export function BoardPage() {
     void reload();
   }, [reload]);
 
-  useBoardSocket(session?.id ?? id ?? null, reload);
+  /* ---------- WebSocket: рилтайм ---------- */
+
+  useBoardSocket(session?.id ?? id ?? null, reload, {
+    onItemMoved: (event) => {
+      /* Если я сам двигаю эту карточку — не перебиваю локальное состояние. */
+      setLocalPositions((prev) => {
+        const next = new Map(prev);
+        next.set(event.itemId, { x: event.posX, y: event.posY });
+        return next;
+      });
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === event.itemId
+            ? { ...it, posX: event.posX, posY: event.posY }
+            : it
+        )
+      );
+    },
+    onNoteUpdated: (event) => {
+      /* Если у меня фокус в textarea и я недавно писал — не перебиваю. */
+      const isFocused =
+        document.activeElement === noteTextareaRef.current;
+      if (isFocused && noteDirtyRef.current) {
+        return;
+      }
+      setNoteText(event.text ?? '');
+      setNoteUpdater(event.updatedByPlayerName);
+      setNoteUpdatedAt(event.updatedAt);
+      if (!isFocused && event.updatedByPlayerName) {
+        showToast(`${event.updatedByPlayerName} обновил заметку`);
+      }
+    },
+  });
+
+  /* ---------- Действия с уликами ---------- */
 
   const handleDelete = async (itemId: string) => {
     if (!id) return;
@@ -115,48 +143,63 @@ export function BoardPage() {
     try {
       await deleteBoardItem(id, itemId);
       setItems((prev) => prev.filter((i) => i.id !== itemId));
-      showToast('Карточка убрана');
     } catch {
       showToast('Не удалось удалить карточку');
     }
   };
 
-  const positions = useMemo(() => {
+  const positions = (() => {
     const m = new Map<string, { x: number; y: number }>();
     items.forEach((it) => {
       const local = localPositions.get(it.id);
       m.set(it.id, local ?? { x: it.posX, y: it.posY });
     });
     return m;
-  }, [items, localPositions]);
+  })();
 
-  const handlePositionChange = (itemId: string, x: number, y: number) => {
+  const handlePositionChange = async (itemId: string, x: number, y: number) => {
     setLocalPositions((prev) => {
       const next = new Map(prev);
       next.set(itemId, { x, y });
       return next;
     });
+    if (!id) return;
+    try {
+      await moveBoardItem(id, itemId, x, y);
+    } catch {
+      /* не критично — WS вернёт актуальную позицию */
+    }
   };
 
-  const visibleItems = useMemo(() => {
-    if (filter === 'ALL') return items;
-    return items.filter((i) => i.itemType === filter);
-  }, [items, filter]);
+  /* ---------- Действия с заметкой ---------- */
 
-  const visibleIds = useMemo(
-    () => new Set(visibleItems.map((i) => i.id)),
-    [visibleItems]
-  );
+  const handleNoteChange = (text: string) => {
+    setNoteText(text);
+    noteDirtyRef.current = true;
 
-  const counts = useMemo(() => {
-    const c = { total: items.length, evidence: 0, note: 0, hyp: 0 };
-    items.forEach((i) => {
-      if (i.itemType === 'EVIDENCE') c.evidence++;
-      else if (i.itemType === 'NOTE') c.note++;
-      else if (i.itemType === 'HYPOTHESIS') c.hyp++;
-    });
-    return c;
-  }, [items]);
+    if (noteDebounceTimer.current) {
+      window.clearTimeout(noteDebounceTimer.current);
+    }
+    noteDebounceTimer.current = window.setTimeout(async () => {
+      if (!id) return;
+      try {
+        await updateBoardNote(id, text);
+        noteDirtyRef.current = false;
+      } catch {
+        /* оставим dirty — попробуем в следующий раз */
+      }
+    }, NOTE_DEBOUNCE_MS);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (noteDebounceTimer.current) {
+        window.clearTimeout(noteDebounceTimer.current);
+      }
+    };
+  }, []);
+
+  /* ---------- Render ---------- */
 
   if (isLoading) {
     return (
@@ -190,6 +233,10 @@ export function BoardPage() {
     );
   }
 
+  const noteIsFresh = noteUpdatedAt
+    ? Date.now() - new Date(noteUpdatedAt).getTime() < NOTE_STALE_MS
+    : false;
+
   return (
     <div className="fixed inset-0 bg-ink overflow-hidden">
       <MapPanContainer
@@ -202,6 +249,7 @@ export function BoardPage() {
         fitMinZoomToViewport
         className="w-full h-full"
       >
+        {/* Фон доски */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
@@ -211,7 +259,6 @@ export function BoardPage() {
             opacity: 0.42,
           }}
         />
-
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
@@ -222,66 +269,8 @@ export function BoardPage() {
           }}
         />
 
-        <div
-          className="absolute inset-0 pointer-events-none opacity-30"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle at 12% 18%, rgba(201,162,74,0.12) 0px, transparent 2px),' +
-              'radial-gradient(circle at 34% 42%, rgba(201,162,74,0.10) 0px, transparent 2px),' +
-              'radial-gradient(circle at 56% 28%, rgba(201,162,74,0.12) 0px, transparent 2px),' +
-              'radial-gradient(circle at 78% 62%, rgba(201,162,74,0.10) 0px, transparent 2px),' +
-              'radial-gradient(circle at 22% 82%, rgba(201,162,74,0.12) 0px, transparent 2px),' +
-              'radial-gradient(circle at 66% 88%, rgba(201,162,74,0.08) 0px, transparent 2px)',
-            backgroundSize: '180px 180px',
-          }}
-        />
-
-        <svg
-          className="absolute inset-0 pointer-events-none"
-          width={CANVAS_W}
-          height={CANVAS_H}
-          style={{ zIndex: 10 }}
-        >
-          <defs>
-            <filter id="thread-shadow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="1" stdDeviation="1" floodColor="#000" floodOpacity="0.7" />
-            </filter>
-          </defs>
-
-          {connections.map((c) => {
-            if (!visibleIds.has(c.fromItemId) || !visibleIds.has(c.toItemId)) return null;
-            const a = positions.get(c.fromItemId);
-            const b = positions.get(c.toItemId);
-            if (!a || !b) return null;
-
-            const aType = items.find((i) => i.id === c.fromItemId)?.itemType;
-            const bType = items.find((i) => i.id === c.toItemId)?.itemType;
-            const aH = aType ? CARD_HEIGHT[aType] : 200;
-            const bH = bType ? CARD_HEIGHT[bType] : 200;
-
-            const ax = a.x + CARD_WIDTH / 2;
-            const ay = a.y + aH / 2;
-            const bx = b.x + CARD_WIDTH / 2;
-            const by = b.y + bH / 2;
-
-            return (
-              <line
-                key={c.id}
-                x1={ax}
-                y1={ay}
-                x2={bx}
-                y2={by}
-                stroke="rgba(156,28,28,0.72)"
-                strokeWidth="1.6"
-                strokeDasharray="4 3"
-                filter="url(#thread-shadow)"
-              />
-            );
-          })}
-        </svg>
-
         <div className="absolute inset-0" style={{ zIndex: 20 }}>
-          {visibleItems.map((item) => (
+          {items.map((item) => (
             <BoardCard
               key={item.id}
               item={{
@@ -295,9 +284,6 @@ export function BoardPage() {
                   : null
               }
               zoom={zoom}
-              selected={selectedId === item.id}
-              onSelect={setSelectedId}
-              onOpen={setOpenItem}
               onDelete={handleDelete}
               onPositionChange={handlePositionChange}
             />
@@ -305,14 +291,15 @@ export function BoardPage() {
         </div>
       </MapPanContainer>
 
+      {/* ───────── Верхняя панель ───────── */}
       <header className="absolute top-0 inset-x-0 z-[100] px-4 sm:px-6 py-4 pointer-events-none">
-        <div className="mx-auto max-w-[1400px] flex items-center justify-between gap-4 flex-wrap">
+        <div className="mx-auto max-w-[1600px] flex items-center justify-between gap-4 flex-wrap">
           <div className="pointer-events-auto flex items-center gap-3 flex-wrap">
             <Link
               to={`/sessions/${session.id}/play`}
               className="inline-flex items-center gap-2
                          px-4 py-2.5 border-2 border-brass/50
-                         bg-ink/90 backdrop-blur-sm
+                         bg-ink/90
                          type text-[11px] uppercase tracking-[0.24em] text-brass
                          hover:bg-brass/10 transition-colors"
               style={{ boxShadow: '0 6px 20px rgba(0,0,0,0.7)' }}
@@ -327,7 +314,7 @@ export function BoardPage() {
 
             <div
               className="hidden sm:flex items-center gap-3
-                         px-4 py-2.5 bg-ink/90 backdrop-blur-sm
+                         px-4 py-2.5 bg-ink/90
                          border border-brass/40"
               style={{ boxShadow: '0 6px 20px rgba(0,0,0,0.7)' }}
             >
@@ -341,90 +328,88 @@ export function BoardPage() {
             </div>
           </div>
 
-          <div className="pointer-events-auto flex items-center gap-2 flex-wrap">
-            <StatPill label="Всего" value={counts.total} />
-            <StatPill label="Улик" value={counts.evidence} accent />
-            <StatPill label="Заметок" value={counts.note} />
-            <StatPill label="Гипотез" value={counts.hyp} />
+          <div className="pointer-events-auto flex items-center gap-2">
+            <div
+              className="hidden md:flex items-center gap-2
+                         px-4 py-2.5 bg-ink/90 border border-brass/40"
+              style={{ boxShadow: '0 6px 20px rgba(0,0,0,0.7)' }}
+            >
+              <span className="type text-[10px] uppercase tracking-[0.26em] text-brass/70">
+                Улик
+              </span>
+              <span className="font-poster text-2xl text-blood tabular-nums leading-none">
+                {items.length}
+              </span>
+            </div>
           </div>
         </div>
       </header>
 
-      <div
-        className="absolute bottom-5 left-4 sm:left-6 z-[100]
-                   flex flex-wrap gap-2 max-w-[55vw]"
-      >
-        {FILTERS.map((f) => {
-          const active = filter === f.key;
-          return (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => setFilter(f.key)}
-              className={
-                'type text-[10px] uppercase tracking-[0.24em] ' +
-                'px-3.5 py-2 border-2 transition-colors cursor-pointer ' +
-                (active
-                  ? 'border-blood bg-blood/15 text-blood'
-                  : 'border-brass/40 bg-ink/90 backdrop-blur-sm text-bone-muted hover:text-bone hover:border-brass/70')
-              }
-              style={{ boxShadow: '0 6px 20px rgba(0,0,0,0.7)' }}
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <button
-        type="button"
-        onClick={() => setAddOpen(true)}
-        className="absolute bottom-5 left-1/2 -translate-x-1/2 z-[100]
-                   inline-flex items-center gap-3
-                   bg-blood text-paper px-7 py-3.5
-                   border-2 border-brass/60
-                   type text-[12px] uppercase tracking-[0.3em]
-                   hover:bg-blood-hover transition-colors cursor-pointer"
+      {/* ───────── Панель общей заметки ───────── */}
+      <aside
+        className="absolute right-4 top-20 z-[100] w-[340px] sm:w-[400px]
+                   max-h-[70vh] flex flex-col
+                   border-2 border-brass/50 bg-ink/95"
         style={{
           boxShadow:
-            '0 14px 40px rgba(0,0,0,0.9), 0 0 28px rgba(156,28,28,0.38)',
+            'inset 0 1px 0 rgba(201,162,74,0.2), ' +
+            '0 20px 50px rgba(0,0,0,0.9), ' +
+            '0 0 30px rgba(201,162,74,0.06)',
         }}
       >
-        <PinIcon className="w-5 h-5" />
-        Приколоть
-      </button>
+        <div className="flex items-center justify-between gap-3 px-4 py-3
+                        border-b border-brass/30">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="type text-[11px] uppercase tracking-[0.3em] text-brass whitespace-nowrap">
+              Общая заметка
+            </span>
+            {noteIsFresh && noteUpdater && (
+              <span className="type text-[10px] uppercase tracking-[0.2em]
+                               text-blood whitespace-nowrap truncate">
+                ✎ {noteUpdater}
+              </span>
+            )}
+          </div>
+          <span className="type text-[10px] uppercase tracking-[0.22em]
+                           text-bone-muted whitespace-nowrap">
+            все пишут
+          </span>
+        </div>
 
-      {openItem && (
-        <BoardItemDetail
-          item={openItem}
-          evidenceMediaId={
-            openItem.evidenceId
-              ? evidenceMediaMap.get(openItem.evidenceId) ?? null
-              : null
-          }
-          onDelete={() => {
-            handleDelete(openItem.id);
-            setOpenItem(null);
+        <textarea
+          ref={noteTextareaRef}
+          value={noteText}
+          onChange={(e) => handleNoteChange(e.target.value)}
+          placeholder="Пишите сюда хронологию, версии, что заметили. Всё видно команде сразу."
+          className="flex-1 min-h-[260px] w-full bg-transparent
+                     text-bone placeholder:text-bone-dim/70
+                     px-4 py-3 resize-none focus:outline-none
+                     leading-relaxed"
+          style={{
+            fontFamily: 'var(--font-type, monospace)',
+            fontSize: 14,
+            overflowY: 'auto',
           }}
-          onClose={() => setOpenItem(null)}
         />
-      )}
 
-      {addOpen && (
-        <AddBoardItemModal
-          sessionId={session.id}
-          onClose={() => setAddOpen(false)}
-          onAdded={() => {
-            setAddOpen(false);
-            void reload();
-            showToast('Карточка приколота');
-          }}
-        />
-      )}
+        <div className="px-4 py-2 border-t border-brass/25
+                        flex items-center justify-between
+                        type text-[10px] uppercase tracking-[0.22em] text-bone-dim">
+          <span>автосохранение</span>
+          {noteUpdatedAt && (
+            <span className="tabular-nums">
+              {new Date(noteUpdatedAt).toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
+          )}
+        </div>
+      </aside>
 
       {toast && (
         <div
-          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[300]
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[300]
                      px-5 py-3 paper paper-fresh
                      type text-[11px] uppercase tracking-[0.22em] text-ink-text
                      animate-fade-in"
@@ -434,173 +419,5 @@ export function BoardPage() {
         </div>
       )}
     </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Детальный просмотр карточки
-   ═══════════════════════════════════════════════════════════ */
-
-function BoardItemDetail({
-  item,
-  evidenceMediaId,
-  onDelete,
-  onClose,
-}: {
-  item: BoardItem;
-  evidenceMediaId: string | null;
-  onDelete: () => void;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onEsc);
-    return () => document.removeEventListener('keydown', onEsc);
-  }, [onClose]);
-
-  const typeLabel: Record<BoardItemType, string> = {
-    EVIDENCE: 'Улика',
-    NOTE: 'Заметка',
-    HYPOTHESIS: 'Гипотеза',
-    QUESTION: 'Вопрос',
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-[250] flex items-center justify-center p-4
-                 overflow-y-auto animate-fade-in"
-      style={{ background: 'rgba(10,6,3,0.88)', backdropFilter: 'blur(4px)' }}
-      onClick={onClose}
-    >
-      <div
-        className="relative w-full max-w-2xl my-auto animate-rise-in"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="paper paper-old relative p-6 sm:p-8 shadow-paper-lift">
-          <div className="pin" style={{ top: -7, left: 32 }} />
-
-          <div className="absolute -top-3 -right-3 rotate-[6deg] z-10">
-            <span className="stamp-red text-xs">{typeLabel[item.itemType]}</span>
-          </div>
-
-          <div className="flex items-baseline justify-between gap-4 mb-6 pb-3
-                          border-b border-dashed border-ink-text/25">
-            <span className="type text-[11px] uppercase tracking-[0.28em] text-ink-text-soft">
-              Карточка дела
-            </span>
-            <button
-              onClick={onClose}
-              aria-label="Закрыть"
-              className="w-8 h-8 flex items-center justify-center cursor-pointer
-                         text-ink-text-soft hover:text-blood transition-colors"
-            >
-              ✕
-            </button>
-          </div>
-
-          {item.title && (
-            <h2 className="font-poster text-3xl leading-tight mb-4 text-ink-text">
-              {item.title}
-            </h2>
-          )}
-
-          {/* Фото улики — object-contain, без обрезки. */}
-          {evidenceMediaId && (
-            <BoardItemImage mediaId={evidenceMediaId} alt={item.title ?? ''} />
-          )}
-
-          {item.content && (
-            <p
-              className="text-[15px] leading-relaxed whitespace-pre-line text-ink-text-soft mb-6"
-              style={{ fontFamily: 'var(--font-type, monospace)' }}
-            >
-              {item.content}
-            </p>
-          )}
-
-          <div className="flex items-center justify-between gap-4 pt-4
-                          border-t border-dashed border-ink-text/25 flex-wrap">
-            <div className="type text-[11px] uppercase tracking-[0.2em] text-ink-text-dim">
-              {item.createdByName && <span>{item.createdByName} · </span>}
-              {new Date(item.createdAt).toLocaleString('ru-RU')}
-            </div>
-
-            <button
-              type="button"
-              onClick={onDelete}
-              className="px-4 py-2 border border-blood/50 text-blood
-                         type text-[11px] uppercase tracking-[0.22em]
-                         hover:bg-blood/10 transition-colors cursor-pointer"
-            >
-              Убрать с доски
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BoardItemImage({ mediaId, alt }: { mediaId: string; alt: string }) {
-  const url = useMediaUrl(mediaId);
-  if (!url) return null;
-  return (
-    <div className="w-full mb-6 flex items-center justify-center">
-      <img
-        src={url}
-        alt={alt}
-        draggable={false}
-        className="max-w-full max-h-[55vh] object-contain select-none"
-        style={{ filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.45))' }}
-      />
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Мелкие компоненты
-   ═══════════════════════════════════════════════════════════ */
-
-function StatPill({
-  label,
-  value,
-  accent = false,
-}: {
-  label: string;
-  value: number;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className="hidden md:flex flex-col items-end leading-none
-                 px-3 py-2 bg-ink/90 backdrop-blur-sm
-                 border border-brass/40"
-      style={{ boxShadow: '0 6px 20px rgba(0,0,0,0.7)' }}
-    >
-      <span className="type text-[9px] uppercase tracking-[0.26em] text-brass/70">
-        {label}
-      </span>
-      <span
-        className={
-          'font-poster text-2xl tabular-nums mt-1 ' +
-          (accent ? 'text-blood' : 'text-bone')
-        }
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function PinIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
-         className={className} aria-hidden="true">
-      <circle cx="12" cy="9" r="4" />
-      <line x1="12" y1="13" x2="12" y2="21" />
-    </svg>
   );
 }

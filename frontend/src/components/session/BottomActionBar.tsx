@@ -3,27 +3,15 @@ import { Link } from 'react-router-dom';
 
 interface Props {
   sessionId: string;
-  inventoryCount: number;
   menuOpen: boolean;
-  onOpenInventory: () => void;
   onToggleMenu: () => void;
-  /** Открыть панель диспетчерских звонков. */
   onOpenDispatch: () => void;
-  /** Сколько непрочитанных звонков — рисуется бейджем. */
   dispatchUnreadCount: number;
 }
 
-/**
- * Нижняя панель действий в стиле детективной доски.
- *
- * Четыре кнопки по центру: Доска · Портфель · Звонок · Меню.
- * Все иконки — контурные SVG в латунном цвете.
- */
 export function BottomActionBar({
   sessionId,
-  inventoryCount,
   menuOpen,
-  onOpenInventory,
   onToggleMenu,
   onOpenDispatch,
   dispatchUnreadCount,
@@ -46,7 +34,7 @@ export function BottomActionBar({
         <Corner pos="bl" />
         <Corner pos="br" />
 
-        {/* ─────────── Доска ─────────── */}
+        {/* Доска */}
         <Link
           to={`/sessions/${sessionId}/board`}
           className="group flex flex-col items-center justify-center gap-1.5
@@ -65,42 +53,7 @@ export function BottomActionBar({
 
         <Divider />
 
-        {/* ─────────── Портфель ─────────── */}
-        <button
-          type="button"
-          onClick={onOpenInventory}
-          className="group relative flex flex-col items-center justify-center gap-1.5
-                     px-3 sm:px-6 py-2.5 sm:py-3
-                     transition-colors hover:bg-brass/10 cursor-pointer"
-        >
-          <BagIcon className="w-6 h-6 sm:w-7 sm:h-7 text-brass/85 transition-all duration-200
-                              group-hover:text-brass group-hover:drop-shadow-[0_0_8px_rgba(201,162,74,0.7)]" />
-          <span
-            className="type text-[9px] sm:text-[10px] uppercase tracking-[0.28em]
-                       text-bone-muted transition-colors group-hover:text-bone"
-          >
-            Портфель
-          </span>
-          {inventoryCount > 0 && (
-            <span
-              className="absolute top-1 right-1 sm:right-2 min-w-[16px] h-[16px]
-                         px-1 flex items-center justify-center
-                         bg-blood text-paper
-                         type text-[9px] leading-none rounded-full
-                         tabular-nums pointer-events-none"
-              style={{
-                boxShadow:
-                  '0 0 8px rgba(156,28,28,0.8), 0 1px 3px rgba(0,0,0,0.9)',
-              }}
-            >
-              {inventoryCount}
-            </span>
-          )}
-        </button>
-
-        <Divider />
-
-        {/* ─────────── Звонок ─────────── */}
+        {/* Звонок */}
         <button
           type="button"
           onClick={onOpenDispatch}
@@ -135,7 +88,7 @@ export function BottomActionBar({
 
         <Divider />
 
-        {/* ─────────── Меню ─────────── */}
+        {/* Меню */}
         <button
           type="button"
           onClick={onToggleMenu}
@@ -168,8 +121,6 @@ export function BottomActionBar({
     </div>
   );
 }
-
-/* ============================================================ */
 
 function Divider() {
   return (
@@ -206,25 +157,13 @@ function Corner({ pos }: { pos: 'tl' | 'tr' | 'bl' | 'br' }) {
   return <span style={style} />;
 }
 
-/* ============================================================
-   Иконки
-   ============================================================ */
-
 type IconProps = SVGProps<SVGSVGElement>;
 
 function BoardIcon({ className, ...rest }: IconProps) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-      {...rest}
-    >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+         className={className} aria-hidden="true" {...rest}>
       <rect x="2.5" y="5" width="19" height="14" rx="0.6" />
       <rect x="5.2" y="8" width="5" height="3.6" rx="0.3" />
       <rect x="13.8" y="8" width="5" height="3.6" rx="0.3" />
@@ -237,40 +176,11 @@ function BoardIcon({ className, ...rest }: IconProps) {
   );
 }
 
-function BagIcon({ className, ...rest }: IconProps) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-      {...rest}
-    >
-      <path d="M9 7 V5.5 a2 2 0 0 1 2 -2 h2 a2 2 0 0 1 2 2 V7" />
-      <rect x="3" y="7" width="18" height="13" rx="1" />
-      <line x1="3" y1="13.6" x2="21" y2="13.6" />
-      <rect x="10.6" y="12.1" width="2.8" height="3" rx="0.3" />
-    </svg>
-  );
-}
-
 function PhoneIcon({ className, ...rest }: IconProps) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-      {...rest}
-    >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+         className={className} aria-hidden="true" {...rest}>
       <path d="M5 4 h4 l2 5 -2.5 1.5 a11 11 0 0 0 5 5 L15 13 l5 2 v4 a2 2 0 0 1 -2 2 A16 16 0 0 1 3 6 a2 2 0 0 1 2 -2 Z" />
     </svg>
   );
@@ -278,17 +188,9 @@ function PhoneIcon({ className, ...rest }: IconProps) {
 
 function MenuIcon({ className, ...rest }: IconProps) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-      {...rest}
-    >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+         className={className} aria-hidden="true" {...rest}>
       <line x1="3.5" y1="7" x2="20.5" y2="7" />
       <line x1="3.5" y1="12" x2="16.5" y2="12" />
       <line x1="3.5" y1="17" x2="13" y2="17" />

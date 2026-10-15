@@ -33,7 +33,6 @@ import { VoicePanel } from '../components/VoicePanel';
 import { SessionIntroOverlay } from '../components/session/SessionIntroOverlay';
 import { GameMenu } from '../components/session/GameMenu';
 import { BottomActionBar } from '../components/session/BottomActionBar';
-import { Portfolio } from '../components/session/Portfolio';
 import {
   PlayerMapView,
   LocationPreview,
@@ -161,7 +160,6 @@ export function SessionPlayPage() {
   const [callModalOpen, setCallModalOpen] = useState(false);
   const [nearbyCharacterId, setNearbyCharacterId] = useState<string | null>(null);
   const [dismissedCharacterId, setDismissedCharacterId] = useState<string | null>(null);
-  const [inventoryOpen, setInventoryOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [inventoryEvidences, setInventoryEvidences] = useState<Evidence[]>([]);
   const [finalQuestion, setFinalQuestion] = useState<FinalQuestion | null>(null);
@@ -854,9 +852,7 @@ export function SessionPlayPage() {
 
       <BottomActionBar
         sessionId={session.id}
-        inventoryCount={inventoryEvidences.length}
         menuOpen={menuOpen}
-        onOpenInventory={() => setInventoryOpen(true)}
         onToggleMenu={() => setMenuOpen((v) => !v)}
         onOpenDispatch={() => setDispatchOpen(true)}
         dispatchUnreadCount={dispatchUnreadCount}
@@ -888,14 +884,6 @@ export function SessionPlayPage() {
           if (id) getSessionPlayers(id).then(setPlayers).catch(() => {});
         }}
       />
-
-      {inventoryOpen && (
-        <Portfolio
-          sessionId={session.id}
-          evidences={inventoryEvidences}
-          onClose={() => setInventoryOpen(false)}
-        />
-      )}
 
       {voiceOpen && (
         <SimpleModal onClose={() => setVoiceOpen(false)} title="Голосовая связь">

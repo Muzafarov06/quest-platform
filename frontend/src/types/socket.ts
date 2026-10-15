@@ -46,6 +46,21 @@ export interface BoardItemRemovedEvent {
   itemId: string;
 }
 
+export interface BoardItemMovedEvent {
+  type: 'BOARD_ITEM_MOVED';
+  itemId: string;
+  posX: number;
+  posY: number;
+  playerName?: string;
+}
+
+export interface BoardNoteUpdatedEvent {
+  type: 'BOARD_NOTE_UPDATED';
+  text: string;
+  updatedByPlayerName: string | null;
+  updatedAt: string | null;
+}
+
 export interface SessionStartedEvent {
   type: 'SESSION_STARTED';
 }
@@ -54,13 +69,11 @@ export interface SessionFinishedEvent {
   type: 'SESSION_FINISHED';
 }
 
-/** Владелец закрыл сессию для всех. */
 export interface SessionClosedEvent {
   type: 'SESSION_CLOSED';
   reason?: string;
 }
 
-/** Игрока исключили из сессии. */
 export interface PlayerKickedEvent {
   type: 'PLAYER_KICKED';
   playerId: string;
@@ -84,7 +97,6 @@ export interface LocationUnlockedEvent {
   hint?: string;
 }
 
-/** Владелец начал писать финальный ответ. */
 export interface FinalAnswerStartedEvent {
   type: 'FINAL_ANSWER_STARTED';
   ownerName: string;
@@ -106,6 +118,8 @@ export type SessionSocketEvent =
   | PlayerUpdatedEvent
   | BoardItemAddedEvent
   | BoardItemRemovedEvent
+  | BoardItemMovedEvent
+  | BoardNoteUpdatedEvent
   | SessionStartedEvent
   | SessionFinishedEvent
   | SessionClosedEvent
