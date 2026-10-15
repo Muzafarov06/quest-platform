@@ -61,6 +61,12 @@ export interface BoardNoteUpdatedEvent {
   updatedAt: string | null;
 }
 
+export interface BoardNoteTypingEvent {
+  type: 'BOARD_NOTE_TYPING';
+  text: string;
+  playerName: string;
+}
+
 export interface SessionStartedEvent {
   type: 'SESSION_STARTED';
 }
@@ -120,6 +126,7 @@ export type SessionSocketEvent =
   | BoardItemRemovedEvent
   | BoardItemMovedEvent
   | BoardNoteUpdatedEvent
+  | BoardNoteTypingEvent
   | SessionStartedEvent
   | SessionFinishedEvent
   | SessionClosedEvent

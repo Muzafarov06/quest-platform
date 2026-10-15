@@ -4,11 +4,13 @@ import type {
   SessionSocketEvent,
   BoardItemMovedEvent,
   BoardNoteUpdatedEvent,
+  BoardNoteTypingEvent,
 } from '../types/socket';
 
 interface Callbacks {
   onItemMoved?: (event: BoardItemMovedEvent) => void;
   onNoteUpdated?: (event: BoardNoteUpdatedEvent) => void;
+  onNoteTyping?: (event: BoardNoteTypingEvent) => void;
 }
 
 export function useBoardSocket(
@@ -16,7 +18,7 @@ export function useBoardSocket(
   onItemsChanged: () => void,
   callbacks: Callbacks = {}
 ) {
-  const { onItemMoved, onNoteUpdated } = callbacks;
+  const { onItemMoved, onNoteUpdated, onNoteTyping } = callbacks;
 
   const handler = useCallback(
     (event: SessionSocketEvent) => {
@@ -33,10 +35,14 @@ export function useBoardSocket(
       }
       if (event.type === 'BOARD_NOTE_UPDATED') {
         onNoteUpdated?.(event);
+        return;
+      }
+      if (event.type === 'BOARD_NOTE_TYPING') {
+        onNoteTyping?.(event);
       }
     },
-    [onItemsChanged, onItemMoved, onNoteUpdated]
+    [onItemsChanged, onItemMoved, onNoteUpdated, onNoteTyping]
   );
 
-  useSessionSocket(sessionId, handler, !!sessionId);
+  return useSessionSocket(sessionId, handler, !!sessionId);
 }

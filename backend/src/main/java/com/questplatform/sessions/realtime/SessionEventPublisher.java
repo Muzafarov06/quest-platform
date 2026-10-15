@@ -190,6 +190,15 @@ public class SessionEventPublisher {
         publish(sessionId, payload);
     }
 
+    /** Транзитное событие: игрок печатает в общей заметке. */
+    public void publishBoardNoteTyping(UUID sessionId, String text, String playerName) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("type", "BOARD_NOTE_TYPING");
+        payload.put("text", text);
+        payload.put("playerName", playerName);
+        publish(sessionId, payload);
+    }
+
     private void publish(UUID sessionId, Object payload) {
         messaging.convertAndSend("/topic/session/" + sessionId, payload);
     }

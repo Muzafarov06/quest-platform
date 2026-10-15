@@ -9,53 +9,75 @@ import {
 } from '../api/board';
 import { getSession } from '../api/sessions';
 import { useBoardSocket } from '../hooks/useBoardSocket';
+import { useAuth } from '../auth/useAuth';
 import { MapPanContainer } from '../components/admin/map/MapPanContainer';
 import { BoardCard } from '../components/board/BoardCard';
+import { BoardItemDetailModal } from '../components/board/BoardItemDetailModal';
 import { getEvidencesByCase } from '../api/evidences';
 import type { BoardItem } from '../types/board';
 import type { GameSession } from '../types/session';
 import type { ApiErrorResponse } from '../types/api';
 
-const CANVAS_W = 5000;
-const CANVAS_H = 3500;
+const CANVAS_W = 8000;
+const CANVAS_H = 5000;
 
-const NOTE_DEBOUNCE_MS = 800;
-const NOTE_STALE_MS = 2500;
+/** Сохранение в БД — реже, чем typing. */
+const NOTE_SAVE_DEBOUNCE_MS = 1200;
+/** Отправка typing по WS — часто, чтобы буквально по буквам. */
+const NOTE_TYPING_THROTTLE_MS = 100;
+/** Через сколько «печатает…» считается протухшим. */
+const NOTE_TYPING_TTL_MS = 2500;
+
+interface EvidenceMeta {
+  evidenceType: string;
+  importance: string;
+  contentText: string | null;
+}
 
 export function BoardPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [session, setSession] = useState<GameSession | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  /** evidenceId → mediaId. Картинки на карточках. */
   const [evidenceMediaMap, setEvidenceMediaMap] = useState<Map<string, string | null>>(
     new Map()
   );
+  const [evidenceMetaMap, setEvidenceMetaMap] = useState<Map<string, EvidenceMeta>>(
+    new Map()
+  );
 
-  /* Локальные позиции — для оптимистичного drag. */
   const [localPositions, setLocalPositions] = useState<
     Map<string, { x: number; y: number }>
   >(new Map());
 
-  /* Общая заметка. */
   const [noteText, setNoteText] = useState('');
   const [noteUpdater, setNoteUpdater] = useState<string | null>(null);
   const [noteUpdatedAt, setNoteUpdatedAt] = useState<string | null>(null);
+  const [notePanelOpen, setNotePanelOpen] = useState(true);
+  const [typingBy, setTypingBy] = useState<string | null>(null);
+  const [typingText, setTypingText] = useState<string | null>(null);
+
   const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const noteSaveTimer = useRef<number | null>(null);
+  const noteTypingLastSentAt = useRef(0);
+  const typingClearTimer = useRef<number | null>(null);
   const noteDirtyRef = useRef(false);
-  const noteDebounceTimer = useRef<number | null>(null);
+  const noteLocalUpdateAtRef = useRef(0);
 
   const [zoom, setZoom] = useState(1);
   const contentRef = useRef<HTMLDivElement | null>(null);
 
+  const [detailItem, setDetailItem] = useState<BoardItem | null>(null);
+
   const [toast, setToast] = useState<string | null>(null);
   const showToast = useCallback((text: string) => {
     setToast(text);
-    window.setTimeout(() => setToast(null), 2000);
+    window.setTimeout(() => setToast(null), 1800);
   }, []);
 
   /* ---------- Загрузка ---------- */
@@ -66,7 +88,11 @@ export function BoardPage() {
       const [s, list, note] = await Promise.all([
         getSession(id),
         getBoardItems(id),
-        getBoardNote(id).catch(() => ({ text: '', updatedByPlayerName: null, updatedAt: null })),
+        getBoardNote(id).catch(() => ({
+          text: '',
+          updatedByPlayerName: null,
+          updatedAt: null,
+        })),
       ]);
       setSession(s);
       setItems(list);
@@ -78,9 +104,18 @@ export function BoardPage() {
 
       try {
         const evidences = await getEvidencesByCase(s.caseId);
-        const m = new Map<string, string | null>();
-        evidences.forEach((ev) => m.set(ev.id, ev.mediaId));
-        setEvidenceMediaMap(m);
+        const mediaMap = new Map<string, string | null>();
+        const metaMap = new Map<string, EvidenceMeta>();
+        evidences.forEach((ev) => {
+          mediaMap.set(ev.id, ev.mediaId);
+          metaMap.set(ev.id, {
+            evidenceType: ev.evidenceType,
+            importance: ev.importance,
+            contentText: ev.contentText,
+          });
+        });
+        setEvidenceMediaMap(mediaMap);
+        setEvidenceMetaMap(metaMap);
       } catch {
         /* ignore */
       }
@@ -97,11 +132,13 @@ export function BoardPage() {
     void reload();
   }, [reload]);
 
-  /* ---------- WebSocket: рилтайм ---------- */
+  /* ---------- WebSocket ---------- */
 
-  useBoardSocket(session?.id ?? id ?? null, reload, {
+  const socketRef = useBoardSocket(session?.id ?? id ?? null, () => {
+    /* Полный reload, если что-то удалилось или добавилось не нами. */
+    void reload();
+  }, {
     onItemMoved: (event) => {
-      /* Если я сам двигаю эту карточку — не перебиваю локальное состояние. */
       setLocalPositions((prev) => {
         const next = new Map(prev);
         next.set(event.itemId, { x: event.posX, y: event.posY });
@@ -115,23 +152,34 @@ export function BoardPage() {
         )
       );
     },
+
     onNoteUpdated: (event) => {
-      /* Если у меня фокус в textarea и я недавно писал — не перебиваю. */
-      const isFocused =
-        document.activeElement === noteTextareaRef.current;
-      if (isFocused && noteDirtyRef.current) {
+      /* Если это моё сохранение — игнорируем: я уже вижу свой текст. */
+      if (user && event.updatedByPlayerName === user.displayName) {
+        setNoteUpdatedAt(event.updatedAt);
         return;
       }
       setNoteText(event.text ?? '');
       setNoteUpdater(event.updatedByPlayerName);
       setNoteUpdatedAt(event.updatedAt);
-      if (!isFocused && event.updatedByPlayerName) {
+      if (event.updatedByPlayerName) {
         showToast(`${event.updatedByPlayerName} обновил заметку`);
       }
     },
+
+    onNoteTyping: (event) => {
+      if (user && event.playerName === user.displayName) return;
+      setTypingBy(event.playerName);
+      setTypingText(event.text);
+      if (typingClearTimer.current) window.clearTimeout(typingClearTimer.current);
+      typingClearTimer.current = window.setTimeout(() => {
+        setTypingBy(null);
+        setTypingText(null);
+      }, NOTE_TYPING_TTL_MS);
+    },
   });
 
-  /* ---------- Действия с уликами ---------- */
+  /* ---------- Действия ---------- */
 
   const handleDelete = async (itemId: string) => {
     if (!id) return;
@@ -139,6 +187,7 @@ export function BoardPage() {
     try {
       await deleteBoardItem(id, itemId);
       setItems((prev) => prev.filter((i) => i.id !== itemId));
+      setDetailItem(null);
     } catch {
       showToast('Не удалось удалить карточку');
     }
@@ -162,36 +211,52 @@ export function BoardPage() {
     if (!id) return;
     try {
       await moveBoardItem(id, itemId, x, y);
-    } catch {
-      /* не критично — WS вернёт актуальную позицию */
-    }
+    } catch { /* WS вернёт актуальное */ }
   };
 
-  /* ---------- Действия с заметкой ---------- */
+  /* ---------- Заметка ---------- */
+
+  const sendTyping = useCallback(
+    (text: string) => {
+      if (!user?.id || !session?.id) return;
+      const client = socketRef.current;
+      if (!client || !client.connected) return;
+      const now = Date.now();
+      if (now - noteTypingLastSentAt.current < NOTE_TYPING_THROTTLE_MS) return;
+      noteTypingLastSentAt.current = now;
+      try {
+        client.publish({
+          destination: `/app/sessions/${session.id}/board/note/typing`,
+          body: JSON.stringify({ userId: user.id, text }),
+        });
+      } catch { /* ignore */ }
+    },
+    [socketRef, session?.id, user?.id]
+  );
 
   const handleNoteChange = (text: string) => {
     setNoteText(text);
     noteDirtyRef.current = true;
+    noteLocalUpdateAtRef.current = Date.now();
 
-    if (noteDebounceTimer.current) {
-      window.clearTimeout(noteDebounceTimer.current);
-    }
-    noteDebounceTimer.current = window.setTimeout(async () => {
+    /* Транзитный typing — по буквам. */
+    sendTyping(text);
+
+    /* Сохранение в БД — реже. */
+    if (noteSaveTimer.current) window.clearTimeout(noteSaveTimer.current);
+    noteSaveTimer.current = window.setTimeout(async () => {
       if (!id) return;
       try {
         await updateBoardNote(id, text);
         noteDirtyRef.current = false;
-      } catch {
-        /* оставим dirty — попробуем в следующий раз */
-      }
-    }, NOTE_DEBOUNCE_MS);
+      } catch { /* ignore */ }
+    }, NOTE_SAVE_DEBOUNCE_MS);
   };
 
   useEffect(() => {
     return () => {
-      if (noteDebounceTimer.current) {
-        window.clearTimeout(noteDebounceTimer.current);
-      }
+      if (noteSaveTimer.current) window.clearTimeout(noteSaveTimer.current);
+      if (typingClearTimer.current) window.clearTimeout(typingClearTimer.current);
     };
   }, []);
 
@@ -229,9 +294,9 @@ export function BoardPage() {
     );
   }
 
-  const noteIsFresh = noteUpdatedAt
-    ? Date.now() - new Date(noteUpdatedAt).getTime() < NOTE_STALE_MS
-    : false;
+  /* Кто-то другой печатает — показываем его текст поверх. */
+  const typingPreviewActive = typingBy !== null && typingText !== null;
+  const textareaShown = typingPreviewActive ? typingText : noteText;
 
   return (
     <div className="fixed inset-0 bg-ink overflow-hidden">
@@ -245,7 +310,6 @@ export function BoardPage() {
         fitMinZoomToViewport
         className="w-full h-full"
       >
-        {/* Фон доски */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
@@ -281,6 +345,7 @@ export function BoardPage() {
               }
               zoom={zoom}
               onDelete={handleDelete}
+              onOpen={setDetailItem}
               onPositionChange={handlePositionChange}
             />
           ))}
@@ -322,9 +387,7 @@ export function BoardPage() {
                 {session.roomCode}
               </span>
             </div>
-          </div>
 
-          <div className="pointer-events-auto flex items-center gap-2">
             <div
               className="hidden md:flex items-center gap-2
                          px-4 py-2.5 bg-ink/90 border border-brass/40"
@@ -338,70 +401,172 @@ export function BoardPage() {
               </span>
             </div>
           </div>
+
+          <div className="pointer-events-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setNotePanelOpen((v) => !v)}
+              className={
+                'inline-flex items-center gap-2 px-4 py-2.5 ' +
+                'border-2 transition-colors cursor-pointer ' +
+                (notePanelOpen
+                  ? 'border-brass/60 bg-brass/10 text-brass'
+                  : 'border-brass/40 bg-ink/90 text-bone-muted hover:text-bone')
+              }
+              style={{ boxShadow: '0 6px 20px rgba(0,0,0,0.7)' }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   strokeWidth="1.6" className="w-3.5 h-3.5">
+                <path d="M4 20 L4 6 a2 2 0 0 1 2 -2 h10 l4 4 v12 a2 2 0 0 1 -2 2 z" />
+                <line x1="8" y1="11" x2="16" y2="11" />
+                <line x1="8" y1="15" x2="13" y2="15" />
+              </svg>
+              <span className="type text-[11px] uppercase tracking-[0.22em]">
+                Заметка
+              </span>
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* ───────── Панель общей заметки ───────── */}
+      {/* ───────── Панель заметки ───────── */}
       <aside
-        className="absolute right-4 top-20 z-[100] w-[340px] sm:w-[400px]
-                   max-h-[70vh] flex flex-col
-                   border-2 border-brass/50 bg-ink/95"
-        style={{
-          boxShadow:
-            'inset 0 1px 0 rgba(201,162,74,0.2), ' +
-            '0 20px 50px rgba(0,0,0,0.9), ' +
-            '0 0 30px rgba(201,162,74,0.06)',
-        }}
+        className="fixed right-0 top-0 bottom-0 z-[110] pointer-events-none"
+        aria-hidden={!notePanelOpen}
       >
-        <div className="flex items-center justify-between gap-3 px-4 py-3
-                        border-b border-brass/30">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="type text-[11px] uppercase tracking-[0.3em] text-brass whitespace-nowrap">
-              Общая заметка
-            </span>
-            {noteIsFresh && noteUpdater && (
-              <span className="type text-[10px] uppercase tracking-[0.2em]
-                               text-blood whitespace-nowrap truncate">
-                ✎ {noteUpdater}
-              </span>
+        <div
+          className={
+            'h-full flex items-stretch transition-transform duration-300 ' +
+            (notePanelOpen ? 'translate-x-0' : 'translate-x-[360px]')
+          }
+        >
+          {/* Панель */}
+          <div
+            className="w-[340px] sm:w-[360px] h-full
+                       border-l-2 border-brass/50 bg-ink/95
+                       flex flex-col pointer-events-auto"
+            style={{
+              boxShadow:
+                '-14px 0 46px rgba(0,0,0,0.85), ' +
+                'inset 0 1px 0 rgba(201,162,74,0.2)',
+            }}
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-4
+                            border-b border-brass/30">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="type text-[11px] uppercase tracking-[0.3em] text-brass whitespace-nowrap">
+                  Общая заметка
+                </span>
+                {noteUpdatedAt && (
+                  <span className="type text-[10px] tabular-nums
+                                   tracking-[0.2em] text-bone-dim whitespace-nowrap">
+                    {new Date(noteUpdatedAt).toLocaleTimeString('ru-RU', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setNotePanelOpen(false)}
+                aria-label="Свернуть заметку"
+                className="w-8 h-8 flex items-center justify-center
+                           text-bone-muted hover:text-brass
+                           type text-lg leading-none
+                           transition-colors cursor-pointer"
+              >
+                →
+              </button>
+            </div>
+
+            {typingPreviewActive && (
+              <div className="flex items-center gap-2 px-4 py-2
+                              border-b border-blood/30 bg-blood/10">
+                <span className="type text-[10px] uppercase tracking-[0.24em]
+                                 text-blood whitespace-nowrap">
+                  ✎ {typingBy} печатает…
+                </span>
+              </div>
             )}
+
+            {!typingPreviewActive && noteUpdater && (
+              <div className="flex items-center gap-2 px-4 py-2
+                              border-b border-brass/20">
+                <span className="type text-[10px] uppercase tracking-[0.22em]
+                                 text-bone-dim whitespace-nowrap">
+                  последний правил: <span className="text-brass">{noteUpdater}</span>
+                </span>
+              </div>
+            )}
+
+            <textarea
+              ref={noteTextareaRef}
+              value={textareaShown}
+              readOnly={typingPreviewActive}
+              onChange={(e) => handleNoteChange(e.target.value)}
+              placeholder="Хронология, версии, что заметили. Всё видно команде сразу."
+              className={
+                'flex-1 min-h-0 w-full bg-transparent px-4 py-4 resize-none ' +
+                'focus:outline-none leading-relaxed ' +
+                (typingPreviewActive
+                  ? 'text-bone-muted italic cursor-default'
+                  : 'text-bone placeholder:text-bone-dim/70')
+              }
+              style={{
+                fontFamily: 'var(--font-type, monospace)',
+                fontSize: 14,
+              }}
+            />
+
+            <div className="px-4 py-2 border-t border-brass/25
+                            flex items-center justify-between
+                            type text-[10px] uppercase tracking-[0.22em] text-bone-dim">
+              <span>автосохранение</span>
+              <span>все пишут</span>
+            </div>
           </div>
-          <span className="type text-[10px] uppercase tracking-[0.22em]
-                           text-bone-muted whitespace-nowrap">
-            все пишут
-          </span>
-        </div>
-
-        <textarea
-          ref={noteTextareaRef}
-          value={noteText}
-          onChange={(e) => handleNoteChange(e.target.value)}
-          placeholder="Пишите сюда хронологию, версии, что заметили. Всё видно команде сразу."
-          className="flex-1 min-h-[260px] w-full bg-transparent
-                     text-bone placeholder:text-bone-dim/70
-                     px-4 py-3 resize-none focus:outline-none
-                     leading-relaxed"
-          style={{
-            fontFamily: 'var(--font-type, monospace)',
-            fontSize: 14,
-            overflowY: 'auto',
-          }}
-        />
-
-        <div className="px-4 py-2 border-t border-brass/25
-                        flex items-center justify-between
-                        type text-[10px] uppercase tracking-[0.22em] text-bone-dim">
-          <span>автосохранение</span>
-          {noteUpdatedAt && (
-            <span className="tabular-nums">
-              {new Date(noteUpdatedAt).toLocaleTimeString('ru-RU', {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </span>
-          )}
         </div>
       </aside>
+
+      {/* ───────── Кнопка-таб, когда заметка свёрнута ───────── */}
+      {!notePanelOpen && (
+        <button
+          type="button"
+          onClick={() => setNotePanelOpen(true)}
+          className="fixed right-0 top-1/2 -translate-y-1/2 z-[110]
+                     px-3 py-4 bg-ink/95 border-l-2 border-y-2 border-brass/50
+                     type text-[10px] uppercase tracking-[0.28em] text-brass
+                     hover:bg-brass/10 transition-colors cursor-pointer"
+          style={{
+            boxShadow: '-8px 0 26px rgba(0,0,0,0.8)',
+            writingMode: 'vertical-rl',
+            textOrientation: 'mixed',
+          }}
+          title="Открыть заметку"
+        >
+          ✎ Заметка
+        </button>
+      )}
+
+      {/* ───────── Модалка деталей ───────── */}
+      {detailItem && (
+        <BoardItemDetailModal
+          item={detailItem}
+          evidenceMediaId={
+            detailItem.evidenceId
+              ? evidenceMediaMap.get(detailItem.evidenceId) ?? null
+              : null
+          }
+          evidenceMeta={
+            detailItem.evidenceId
+              ? evidenceMetaMap.get(detailItem.evidenceId) ?? null
+              : null
+          }
+          onDelete={() => handleDelete(detailItem.id)}
+          onClose={() => setDetailItem(null)}
+        />
+      )}
 
       {toast && (
         <div

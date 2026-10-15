@@ -2,18 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMediaUrl } from '../../hooks/useMediaUrl';
 import type { BoardItem } from '../../types/board';
 
-/** Ширина карточки. */
 export const CARD_WIDTH = 320;
-
-/** Высота карточки улики (по типу не разделяем — все улики одного размера). */
 export const CARD_HEIGHT = 460;
 
 interface Props {
   item: BoardItem;
   zoom: number;
-  /** UUID медиа улики. */
   evidenceMediaId?: string | null;
   onDelete: (id: string) => void;
+  onOpen: (item: BoardItem) => void;
   onPositionChange: (id: string, x: number, y: number) => void;
   onDragStart?: () => void;
 }
@@ -23,6 +20,7 @@ export function BoardCard({
   zoom,
   evidenceMediaId = null,
   onDelete,
+  onOpen,
   onPositionChange,
   onDragStart,
 }: Props) {
@@ -78,6 +76,8 @@ export function BoardCard({
       setDragging(false);
       if (dragStart.current.moved) {
         onPositionChange(item.id, pos.x, pos.y);
+      } else {
+        onOpen(item);
       }
     };
     window.addEventListener('mousemove', onMove);
@@ -86,7 +86,7 @@ export function BoardCard({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [dragging, zoom, item.id, onPositionChange, pos.x, pos.y]);
+  }, [dragging, zoom, item, onPositionChange, onOpen, pos.x, pos.y]);
 
   const H = CARD_HEIGHT;
   const tilt = ((item.id.charCodeAt(0) + item.id.charCodeAt(1)) % 5) - 2;
@@ -113,7 +113,6 @@ export function BoardCard({
         transition: dragging ? 'none' : 'transform 180ms ease-out',
       }}
     >
-      {/* Булавка */}
       <div
         className="pin"
         style={{ top: -8, left: '50%', marginLeft: -7, zIndex: 20 }}
@@ -126,7 +125,6 @@ export function BoardCard({
         <EvidenceVisual item={item} mediaId={evidenceMediaId} />
       </div>
 
-      {/* Кнопка удаления */}
       {hovered && !dragging && (
         <button
           type="button"
@@ -151,10 +149,6 @@ export function BoardCard({
   );
 }
 
-/* ═══════════════════════════════════════════════════════════
-   Улика — единый вид для всех карточек
-   ═══════════════════════════════════════════════════════════ */
-
 function EvidenceVisual({
   item,
   mediaId,
@@ -170,7 +164,6 @@ function EvidenceVisual({
         <span className="stamp-red text-[11px]">Улика</span>
       </div>
 
-      {/* Превью */}
       <div className="relative w-full aspect-[4/3] mb-3 flex items-center justify-center">
         {url ? (
           <img
@@ -194,7 +187,6 @@ function EvidenceVisual({
         )}
       </div>
 
-      {/* Подпись */}
       <div className="flex-1 flex flex-col min-h-0">
         <div className="type text-[10px] uppercase tracking-[0.24em] text-ink-text-dim mb-1.5">
           Улика
@@ -216,7 +208,6 @@ function EvidenceVisual({
         )}
       </div>
 
-      {/* Кто нашёл */}
       <div className="mt-3 pt-2 border-t border-dashed border-ink-text/25
                       flex items-center gap-2">
         <span className="shrink-0 text-base leading-none" aria-hidden="true">🖐</span>
