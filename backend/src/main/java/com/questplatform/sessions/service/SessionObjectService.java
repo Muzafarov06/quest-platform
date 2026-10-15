@@ -32,9 +32,9 @@ import java.util.stream.Collectors;
 /**
  * Осмотр объекта в сессии.
  *
- * <p>Только БД. Ни движок, ни открытие локаций здесь НЕ вызываются —
- * они запускаются после коммита через {@code ApplicationEventPublisher}.
- * Это защищает факт находки улики от отката при ошибках движка.</p>
+ * <p>Только БД. Движок, открытие локаций и добавление улики на доску
+ * запускаются после коммита через Spring events — так ошибка движка
+ * не откатит сам факт находки.</p>
  */
 @Service
 public class SessionObjectService {
@@ -46,6 +46,7 @@ public class SessionObjectService {
     private final PlayerInventoryRepository inventoryRepo;
     private final SessionEventPublisher eventPublisher;
     private final ApplicationEventPublisher springEvents;
+    private final BoardService boardService;
 
     public SessionObjectService(GameObjectRepository objectRepo,
                                 EvidenceRepository evidenceRepo,
@@ -53,7 +54,8 @@ public class SessionObjectService {
                                 SessionDiscoveredEvidenceRepository discoveredRepo,
                                 PlayerInventoryRepository inventoryRepo,
                                 SessionEventPublisher eventPublisher,
-                                ApplicationEventPublisher springEvents) {
+                                ApplicationEventPublisher springEvents,
+                                BoardService boardService) {
         this.objectRepo = objectRepo;
         this.evidenceRepo = evidenceRepo;
         this.playerRepo = playerRepo;
@@ -61,6 +63,7 @@ public class SessionObjectService {
         this.inventoryRepo = inventoryRepo;
         this.eventPublisher = eventPublisher;
         this.springEvents = springEvents;
+        this.boardService = boardService;
     }
 
     @Transactional
@@ -104,7 +107,6 @@ public class SessionObjectService {
                 .collect(Collectors.toMap(SessionPlayer::getId, SessionPlayer::getDisplayName));
 
         List<ObjectInspectResponse.InspectEvidenceItem> items = new ArrayList<>();
-        /* Список улик, найденных ИМЕННО СЕЙЧАС — для публикации событий. */
         List<UUID> justDiscovered = new ArrayList<>();
 
         for (Evidence e : evidences) {
@@ -122,7 +124,6 @@ public class SessionObjectService {
                 disc.setDiscoveredBy(playerId);
                 disc = discoveredRepo.save(disc);
 
-                /* В личный Портфель кладём только первый раз. */
                 if (!myInventory.contains(e.getId())) {
                     PlayerInventoryItem item = new PlayerInventoryItem();
                     item.setSessionId(sessionId);
@@ -132,7 +133,14 @@ public class SessionObjectService {
                     myInventory.add(e.getId());
                 }
 
-                /* WebSocket-уведомление команде. */
+                /* Улика сразу падает на доску — Портфель больше не нужен. */
+                boardService.addEvidenceIfAbsent(
+                        sessionId,
+                        playerId,
+                        e.getId(),
+                        e.getTitle(),
+                        e.getContentText() != null ? e.getContentText() : e.getDescription());
+
                 eventPublisher.evidenceTaken(
                         sessionId, e.getId(), e.getTitle(), player.getDisplayName());
 
@@ -147,7 +155,6 @@ public class SessionObjectService {
                 boolean mine = discoveredById.equals(playerId);
 
                 if (mine && !myInventory.contains(e.getId())) {
-                    /* Подстраховка: улика моя, но не в Портфеле — добавим. */
                     PlayerInventoryItem item = new PlayerInventoryItem();
                     item.setSessionId(sessionId);
                     item.setPlayerId(playerId);
@@ -174,7 +181,6 @@ public class SessionObjectService {
             ));
         }
 
-        /* Публикуем события ДО коммита, но обработаются они ПОСЛЕ него. */
         for (UUID evidenceId : justDiscovered) {
             springEvents.publishEvent(new EngineActionEvent(
                     sessionId, playerId, ConditionType.EVIDENCE_DISCOVERED, evidenceId));

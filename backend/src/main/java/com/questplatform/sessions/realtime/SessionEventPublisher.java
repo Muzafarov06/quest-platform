@@ -163,6 +163,33 @@ public class SessionEventPublisher {
         ));
     }
 
+    /** Кто-то передвинул карточку на доске. */
+    public void publishBoardItemMoved(UUID sessionId, UUID itemId,
+                                      float posX, float posY,
+                                      String playerName) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("type", "BOARD_ITEM_MOVED");
+        payload.put("itemId", itemId.toString());
+        payload.put("posX", posX);
+        payload.put("posY", posY);
+        if (playerName != null) {
+            payload.put("playerName", playerName);
+        }
+        publish(sessionId, payload);
+    }
+
+    /** Кто-то обновил общую заметку доски. */
+    public void publishBoardNoteUpdated(UUID sessionId, String text,
+                                        String updatedByPlayerName,
+                                        java.time.Instant updatedAt) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("type", "BOARD_NOTE_UPDATED");
+        payload.put("text", text);
+        payload.put("updatedByPlayerName", updatedByPlayerName);
+        payload.put("updatedAt", updatedAt != null ? updatedAt.toString() : null);
+        publish(sessionId, payload);
+    }
+
     private void publish(UUID sessionId, Object payload) {
         messaging.convertAndSend("/topic/session/" + sessionId, payload);
     }
