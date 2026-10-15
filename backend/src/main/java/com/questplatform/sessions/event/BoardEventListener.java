@@ -25,6 +25,7 @@ public class BoardEventListener {
         item.put("title", event.title());
         item.put("content", event.content());
         item.put("itemType", event.itemType().name());
+        item.put("evidenceId", event.evidenceId() != null ? event.evidenceId().toString() : null);
         item.put("posX", event.posX());
         item.put("posY", event.posY());
         item.put("createdAt", event.createdAt() != null ? event.createdAt().toString() : null);
@@ -35,5 +36,19 @@ public class BoardEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onItemRemoved(BoardItemRemovedEvent event) {
         publisher.publishBoardItemRemoved(event.sessionId(), event.itemId());
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onItemMoved(BoardItemMovedEvent event) {
+        publisher.publishBoardItemMoved(
+                event.sessionId(), event.itemId(),
+                event.posX(), event.posY(), event.playerName());
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onNoteUpdated(BoardNoteUpdatedEvent event) {
+        publisher.publishBoardNoteUpdated(
+                event.sessionId(), event.text(),
+                event.updatedByPlayerName(), event.updatedAt());
     }
 }
