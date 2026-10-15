@@ -13,8 +13,6 @@ import { getPlayerScene, getPlayerMap } from '../api/scene';
 import { getLocation } from '../api/locations';
 import { sendSessionAction } from '../api/actions';
 import { inspectObject } from '../api/inspect';
-import { getMyInventory } from '../api/inventory';
-import { getEvidence } from '../api/evidences';
 import {
   getSessionFinalQuestion,
   submitFinalAnswer,
@@ -62,7 +60,6 @@ import type { Case } from '../types/case';
 import type { PlayerScene, PlayerMap } from '../types/scene';
 import type { Location } from '../types/location';
 import type { Character } from '../types/character';
-import type { Evidence } from '../types/evidence';
 import type { GameEvent } from '../types/action';
 import type { FinalQuestion } from '../types/finalQuestion';
 import type { SessionSocketEvent } from '../types/socket';
@@ -161,7 +158,6 @@ export function SessionPlayPage() {
   const [nearbyCharacterId, setNearbyCharacterId] = useState<string | null>(null);
   const [dismissedCharacterId, setDismissedCharacterId] = useState<string | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
-  const [inventoryEvidences, setInventoryEvidences] = useState<Evidence[]>([]);
   const [finalQuestion, setFinalQuestion] = useState<FinalQuestion | null>(null);
   const [finalModalOpen, setFinalModalOpen] = useState(false);
   const [finalAnswerText, setFinalAnswerText] = useState('');
@@ -392,22 +388,6 @@ export function SessionPlayPage() {
       .catch(() => setFinalQuestion(null));
   }, [id]);
 
-  const loadInventory = useCallback(async () => {
-    if (!id) return;
-    try {
-      const items = await getMyInventory(id);
-      const evidences = await Promise.all(
-        items.map((i) => getEvidence(i.evidenceId).catch(() => null))
-      );
-      setInventoryEvidences(evidences.filter((e): e is Evidence => e !== null));
-    } catch { /* ignore */ }
-  }, [id]);
-
-  useEffect(() => {
-    if (!id) return;
-    void loadInventory();
-  }, [id, loadInventory]);
-
   const handlePinSize = useCallback(
     (pinId: string, size: { w: number; h: number }) => {
       setPinSizes((prev) => {
@@ -585,10 +565,6 @@ export function SessionPlayPage() {
           return next;
         });
       }
-
-      if (event.type === 'EVIDENCE_TAKEN') {
-        void loadInventory();
-      }
     },
     !!session
   );
@@ -668,7 +644,6 @@ export function SessionPlayPage() {
     try {
       const res = await inspectObject(id, objectId);
       setInspectData(res);
-      void loadInventory();
     } catch { /* ignore */ }
   };
 
@@ -1023,7 +998,6 @@ export function SessionPlayPage() {
           events={events}
           sessionId={session.id}
           onAllClosed={() => setEvents([])}
-          onEvidenceTaken={loadInventory}
         />
       )}
 

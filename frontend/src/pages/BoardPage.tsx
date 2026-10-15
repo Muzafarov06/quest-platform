@@ -10,11 +10,7 @@ import {
 import { getSession } from '../api/sessions';
 import { useBoardSocket } from '../hooks/useBoardSocket';
 import { MapPanContainer } from '../components/admin/map/MapPanContainer';
-import {
-  BoardCard,
-  CARD_WIDTH,
-  CARD_HEIGHT,
-} from '../components/board/BoardCard';
+import { BoardCard } from '../components/board/BoardCard';
 import { getEvidencesByCase } from '../api/evidences';
 import type { BoardItem } from '../types/board';
 import type { GameSession } from '../types/session';
