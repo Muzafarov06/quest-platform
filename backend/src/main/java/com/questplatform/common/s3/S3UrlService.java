@@ -16,13 +16,6 @@ public class S3UrlService {
     private final S3Presigner s3Presigner;
     private final S3Properties props;
 
-    /**
-     * Возвращает временную подписанную ссылку для чтения файла
-     * из приватного S3-бакета.
-     *
-     * @param key ключ объекта в бакете, например:
-     *            "b87bae84-cc9a-4616-b560-e8be2a75d7cb.png"
-     */
     public String getFileUrl(String key) {
         if (key == null || key.isBlank()) {
             return null;
@@ -31,9 +24,6 @@ public class S3UrlService {
         GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                 .bucket(props.getBucket())
                 .key(key)
-                .responseCacheControl(
-                        "public, max-age=" + props.getCacheControlMaxAgeSeconds() + ", immutable"
-                )
                 .build();
 
         GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()

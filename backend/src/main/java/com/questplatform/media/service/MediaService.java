@@ -98,13 +98,11 @@ public class MediaService {
         media.setUploadedBy(user.getId());
         media = mediaRepository.save(media);
 
-        String cacheControl = buildCacheControl();
-
         PutObjectRequest putRequest = PutObjectRequest.builder()
                 .bucket(props.getBucket())
                 .key(s3Key)
                 .contentType(req.contentType())
-                .cacheControl(cacheControl)
+                .cacheControl(buildCacheControl())
                 .build();
 
         PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
@@ -235,7 +233,6 @@ public class MediaService {
         GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                 .bucket(props.getBucket())
                 .key(s3Key)
-                .responseCacheControl(buildCacheControl())
                 .build();
 
         GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
