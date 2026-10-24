@@ -39,17 +39,17 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        // Конкретный origin (не "*") — обязательное условие для allowCredentials(true)
+
         config.setAllowedOrigins(List.of(frontendUrl));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setExposedHeaders(List.of("Authorization"));
-        // SockJS отправляет с credentials — надо разрешить
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
+
         return source;
     }
 
@@ -84,6 +84,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/sessions/by-code/*/join").permitAll()
                         .requestMatchers("/ws/**").permitAll()
+
+                        // Файлы медиа отдаются через backend.
+                        // <img src="..."> не отправляет Authorization,
+                        // поэтому этот endpoint должен быть публичным.
+                        .requestMatchers("/api/media/*/file").permitAll()
+
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(authenticationEntryPoint))

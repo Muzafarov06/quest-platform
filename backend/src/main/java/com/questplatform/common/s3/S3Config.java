@@ -11,15 +11,6 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import java.net.URI;
 
-/**
- * Конфигурация S3-клиента и S3Presigner.
- *
- * pathStyleAccessEnabled(true) — Railway Buckets используют path-style URL:
- * https://t3.storageapi.dev/<bucket>/<key>
- *
- * chunkedEncodingEnabled(false) — отключает aws-chunked encoding,
- * который некоторые S3-совместимые хранилища не поддерживают.
- */
 @Configuration
 public class S3Config {
 

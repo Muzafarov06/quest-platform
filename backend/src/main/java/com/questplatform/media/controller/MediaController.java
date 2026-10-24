@@ -7,13 +7,17 @@ import com.questplatform.media.entity.CaseMedia;
 import com.questplatform.media.service.MediaService;
 import com.questplatform.users.entity.User;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.InputStream;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,6 +33,27 @@ public class MediaController {
     @GetMapping("/api/media/{id}")
     public ResponseEntity<MediaResponse> getById(@PathVariable UUID id) {
         return ResponseEntity.ok(mediaService.getById(id));
+    }
+
+    /**
+     * Отдаёт файл браузеру через backend.
+     * Именно этот URL теперь используется в <img src="...">.
+     */
+    @GetMapping("/api/media/{id}/file")
+    public ResponseEntity<StreamingResponseBody> getFile(@PathVariable UUID id) {
+        MediaService.MediaFile file = mediaService.getFile(id);
+
+        StreamingResponseBody body = outputStream -> {
+            try (InputStream input = file.content()) {
+                input.transferTo(outputStream);
+            }
+        };
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(file.mimeType()))
+                .contentLength(file.sizeBytes())
+                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000, immutable")
+                .body(body);
     }
 
     @GetMapping("/api/cases/{caseId}/media")
@@ -53,6 +78,7 @@ public class MediaController {
             @AuthenticationPrincipal User user
     ) {
         CaseMedia media = mediaService.upload(caseId, file, user);
+
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(mediaService.getById(media.getId()));
     }

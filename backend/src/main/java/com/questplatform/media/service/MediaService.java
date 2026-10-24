@@ -14,23 +14,20 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
-import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class MediaService {
@@ -43,11 +40,7 @@ public class MediaService {
             "video/mp4", "application/pdf"
     );
 
-    private static final long PRESIGNED_URL_SAFETY_MARGIN_MINUTES = 5;
     private static final long PRESIGNED_PUT_TTL_MINUTES = 30;
-
-    private final Map<String, CachedPresignedUrl> presignedGetUrlCache =
-            new ConcurrentHashMap<>();
 
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
@@ -172,12 +165,19 @@ public class MediaService {
 
     @Transactional(readOnly = true)
     public MediaResponse getById(UUID mediaId) {
-        CaseMedia media = mediaRepository.findById(mediaId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Медиа не найдено: " + mediaId
-                ));
+        CaseMedia media = getMedia(mediaId);
 
-        return toResponse(media);
+        return new MediaResponse(
+                media.getId(),
+                media.getCaseId(),
+                media.getOriginalName(),
+                media.getMimeType(),
+                media.getSizeBytes(),
+                media.getWidth(),
+                media.getHeight(),
+                "/api/media/" + media.getId() + "/file",
+                media.getCreatedAt()
+        );
     }
 
     @Transactional(readOnly = true)
@@ -188,24 +188,37 @@ public class MediaService {
                 .toList();
     }
 
-    @Transactional
-    public void delete(UUID mediaId) {
-        CaseMedia media = mediaRepository.findById(mediaId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Медиа не найдено: " + mediaId
-                ));
+    @Transactional(readOnly = true)
+    public MediaFile getFile(UUID mediaId) {
+        CaseMedia media = getMedia(mediaId);
 
-        s3Client.deleteObject(DeleteObjectRequest.builder()
+        GetObjectRequest request = GetObjectRequest.builder()
                 .bucket(props.getBucket())
                 .key(media.getS3Key())
-                .build());
+                .build();
 
-        presignedGetUrlCache.remove(media.getS3Key());
-        mediaRepository.delete(media);
+        ResponseInputStream<GetObjectResponse> stream = s3Client.getObject(request);
+
+        return new MediaFile(
+                stream,
+                media.getMimeType(),
+                media.getSizeBytes(),
+                media.getOriginalName()
+        );
     }
 
-    public String getFileUrlByKey(String s3Key) {
-        return generatePresignedUrl(s3Key);
+    @Transactional
+    public void delete(UUID mediaId) {
+        CaseMedia media = getMedia(mediaId);
+
+        s3Client.deleteObject(
+                software.amazon.awssdk.services.s3.model.DeleteObjectRequest.builder()
+                        .bucket(props.getBucket())
+                        .key(media.getS3Key())
+                        .build()
+        );
+
+        mediaRepository.delete(media);
     }
 
     private MediaResponse toResponse(CaseMedia media) {
@@ -217,45 +230,16 @@ public class MediaService {
                 media.getSizeBytes(),
                 media.getWidth(),
                 media.getHeight(),
-                generatePresignedUrl(media.getS3Key()),
+                "/api/media/" + media.getId() + "/file",
                 media.getCreatedAt()
         );
     }
 
-    private String generatePresignedUrl(String s3Key) {
-        Instant now = Instant.now();
-
-        CachedPresignedUrl cached = presignedGetUrlCache.get(s3Key);
-        if (cached != null && cached.expiresAt().isAfter(now)) {
-            return cached.url();
-        }
-
-        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
-                .bucket(props.getBucket())
-                .key(s3Key)
-                .build();
-
-        GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
-                .signatureDuration(Duration.ofMinutes(props.getPresignedUrlTtlMinutes()))
-                .getObjectRequest(getObjectRequest)
-                .build();
-
-        String url = s3Presigner
-                .presignGetObject(presignRequest)
-                .url()
-                .toString();
-
-        long effectiveTtlMinutes = Math.max(
-                1,
-                props.getPresignedUrlTtlMinutes() - PRESIGNED_URL_SAFETY_MARGIN_MINUTES
-        );
-
-        presignedGetUrlCache.put(
-                s3Key,
-                new CachedPresignedUrl(url, now.plus(Duration.ofMinutes(effectiveTtlMinutes)))
-        );
-
-        return url;
+    private CaseMedia getMedia(UUID mediaId) {
+        return mediaRepository.findById(mediaId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Медиа не найдено: " + mediaId
+                ));
     }
 
     private String buildCacheControl() {
@@ -275,6 +259,11 @@ public class MediaService {
         return filename.substring(dot + 1).toLowerCase();
     }
 
-    private record CachedPresignedUrl(String url, Instant expiresAt) {
+    public record MediaFile(
+            ResponseInputStream<GetObjectResponse> content,
+            String mimeType,
+            long sizeBytes,
+            String fileName
+    ) {
     }
 }
