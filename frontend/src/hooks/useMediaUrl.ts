@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react';
-import { getMedia } from '../api/media';
+import { apiClient } from '../api/client';
+
+function getApiBaseUrl(): string {
+  const baseUrl = apiClient.defaults.baseURL;
+
+  if (!baseUrl) {
+    return '';
+  }
+
+  return baseUrl.replace(/\/$/, '');
+}
 
 /**
- * Получает presigned URL для медиа по id.
- * Возвращает null пока идёт загрузка или если id = null.
+ * Возвращает URL файла через backend.
+ * Backend сам скачивает файл из S3 и отдаёт его браузеру.
  */
 export function useMediaUrl(mediaId: string | null | undefined): string | null {
   const [url, setUrl] = useState<string | null>(null);
@@ -13,17 +23,8 @@ export function useMediaUrl(mediaId: string | null | undefined): string | null {
       setUrl(null);
       return;
     }
-    let cancelled = false;
-    getMedia(mediaId)
-      .then((info) => {
-        if (!cancelled) setUrl(info.url);
-      })
-      .catch(() => {
-        if (!cancelled) setUrl(null);
-      });
-    return () => {
-      cancelled = true;
-    };
+
+    setUrl(`${getApiBaseUrl()}/api/media/${mediaId}/file`);
   }, [mediaId]);
 
   return url;
