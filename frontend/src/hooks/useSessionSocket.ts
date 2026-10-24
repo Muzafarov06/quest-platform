@@ -3,7 +3,24 @@ import { Client, type IMessage } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import type { SessionSocketEvent } from '../types/socket';
 
-const WS_URL = 'http://localhost:8080/ws';
+/**
+ * URL WebSocket-сервера.
+ *
+ *   • В dev (localhost): http://localhost:8080/ws
+ *   • В prod (HTTPS): берётся из VITE_WS_URL, например
+ *     https://quest-backend.up.railway.app/ws
+ *
+ * Если VITE_WS_URL не задан и страница на HTTPS — не подключаемся,
+ * чтобы не ловить mixed-content. Это осознанный fallback.
+ */
+const WS_URL: string | null = (() => {
+  const fromEnv = import.meta.env.VITE_WS_URL as string | undefined;
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  if (typeof window === 'undefined') return 'http://localhost:8080/ws';
+  return window.location.protocol === 'https:'
+    ? null
+    : 'http://localhost:8080/ws';
+})();
 
 export function useSessionSocket(
   sessionId: string | null | undefined,
@@ -19,6 +36,13 @@ export function useSessionSocket(
 
   useEffect(() => {
     if (!enabled || !sessionId) return;
+    if (!WS_URL) {
+      console.warn(
+        '[WS] VITE_WS_URL не задан, а страница на HTTPS — ' +
+          'реалтайм выключен. Задай VITE_WS_URL в Vercel env.'
+      );
+      return;
+    }
 
     const client = new Client({
       webSocketFactory: () => new SockJS(WS_URL) as unknown as WebSocket,

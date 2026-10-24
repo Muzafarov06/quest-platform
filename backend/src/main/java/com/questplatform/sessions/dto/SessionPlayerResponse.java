@@ -9,7 +9,7 @@ public record SessionPlayerResponse(
         UUID userId,
         UUID guestToken,
         String displayName,
-        String avatarKey,
+        String avatarUrl,
         float posX,
         float posY,
         String facing,

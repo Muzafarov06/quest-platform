@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   getSessionByCode,
@@ -30,13 +30,12 @@ export function RoomPage() {
   const [players, setPlayers] = useState<SessionPlayer[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  const [joinName, setJoinName] = useState('');
   const [isJoining, setIsJoining] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
   const [isReadyBusy, setIsReadyBusy] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  const joinAttemptedRef = useRef(false);
 
   const [remotePositions, setRemotePositions] = useState<
     Map<string, { x: number; y: number; facing: Facing }>
@@ -69,6 +68,33 @@ export function RoomPage() {
     setIsLoading(true);
     loadData().finally(() => setIsLoading(false));
   }, [loadData]);
+
+  /* Авто-вход: если пользователь ещё не активный игрок этой сессии — джойнимся. */
+  useEffect(() => {
+    if (!session || !players || !user) return;
+    if (joinAttemptedRef.current) return;
+
+    const me = players.find((p) => p.userId === user.id);
+    if (me && me.active) return; // уже в игре
+
+    if (session.status === 'FINISHED' || session.status === 'ABANDONED') {
+      setError('Это расследование уже завершено.');
+      return;
+    }
+
+    joinAttemptedRef.current = true;
+    setIsJoining(true);
+
+    joinSession(session.roomCode, { displayName: user.displayName })
+      .then(() => loadData())
+      .catch((err: unknown) => {
+        const apiError = err as { response?: { data?: ApiErrorResponse } };
+        setError(
+          apiError.response?.data?.message ?? 'Не удалось войти в комнату.'
+        );
+      })
+      .finally(() => setIsJoining(false));
+  }, [session, players, user, loadData]);
 
   useSessionSocket(
     session?.id ?? null,
@@ -113,8 +139,7 @@ export function RoomPage() {
    *   • игрок подключился позже — сессия уже идёт;
    *   • владелец запустил игру, пока игрок был в лобби — приходит
    *     SESSION_STARTED, но здесь мы ещё раз страхуемся;
-   *   • игрок нажал «Готов» в пустой или почти пустой комнате, а игра
-   *     уже шла.
+   *   • игрок зашёл по ссылке в комнату, где игра уже началась.
    */
   useEffect(() => {
     if (!session || !players) return;
@@ -147,22 +172,6 @@ export function RoomPage() {
     },
     [players, user?.id]
   );
-
-  const handleJoin = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!session) return;
-    setJoinError(null);
-    setIsJoining(true);
-    try {
-      await joinSession(session.roomCode, { displayName: joinName });
-      await loadData();
-    } catch (err: unknown) {
-      const apiError = err as { response?: { data?: ApiErrorResponse } };
-      setJoinError(apiError.response?.data?.message ?? 'Не удалось войти.');
-    } finally {
-      setIsJoining(false);
-    }
-  };
 
   const copyToClipboard = async (text: string, kind: 'code' | 'link') => {
     try {
@@ -212,22 +221,42 @@ export function RoomPage() {
           </div>
           <div className="text-ink-text text-base mb-6">{error}</div>
           <Link
-            to="/cases"
+            to="/my-sessions"
             className="type text-[12px] uppercase tracking-[0.24em]
                        text-blood hover:text-blood-hover"
           >
-            ← Все дела
+            ← Мои сессии
           </Link>
         </div>
       </div>
     );
   }
 
-  if (!session || !players) return null;
+  if (!session || !players) {
+    return (
+      <div className="fixed inset-0 z-40 bg-ink flex items-center justify-center">
+        <span className="type text-[13px] uppercase tracking-[0.32em] text-bone-muted">
+          Подготовка комнаты…
+        </span>
+      </div>
+    );
+  }
 
   const inviteUrl = `${window.location.origin}/rooms/${session.roomCode}`;
   const mePlayer = players.find((p) => p.userId === user?.id) ?? null;
   const amIPlayer = !!mePlayer;
+
+  /* Пока идёт авто-джойн или пользователь ещё не в списке — заглушка. */
+  if (!amIPlayer) {
+    return (
+      <div className="fixed inset-0 z-40 bg-ink flex items-center justify-center">
+        <span className="type text-[13px] uppercase tracking-[0.32em] text-bone-muted">
+          {isJoining ? 'Входим в комнату…' : 'Подключаемся…'}
+        </span>
+      </div>
+    );
+  }
+
   const showRotateOverlay = isMobile && isPortrait && amIPlayer;
 
   const maxPlayers = caseData?.maxPlayers ?? 0;
@@ -254,47 +283,23 @@ export function RoomPage() {
 
       <div className="fixed inset-0 z-40 bg-ink overflow-hidden">
 
-        {amIPlayer && mePlayer && (
-          <div className="absolute inset-0">
-            <LobbyRoom
-              sessionId={session.id}
-              players={players}
-              mePlayerId={mePlayer.id}
-              remotePositions={remotePositions}
-              onLocalPosition={handleLocalPosition}
-              onToggleReady={handleToggleReady}
-              isMeReady={mePlayer.ready}
-              isReadyBusy={isReadyBusy}
-              onPickFigure={handlePickFigure}
-              fill
-            />
-          </div>
-        )}
-
-        {!amIPlayer && (
-          <>
-            <div
-              className="absolute inset-0 opacity-25"
-              style={{
-                backgroundImage:
-                  'linear-gradient(rgba(201,162,74,0.06) 1px, transparent 1px), ' +
-                  'linear-gradient(90deg, rgba(201,162,74,0.06) 1px, transparent 1px)',
-                backgroundSize: '54px 54px',
-              }}
-            />
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background:
-                  'radial-gradient(ellipse 80% 55% at 50% -10%, rgba(156,28,28,0.22), transparent 60%), ' +
-                  'radial-gradient(ellipse 100% 100% at 50% 50%, transparent 30%, rgba(0,0,0,0.85) 100%)',
-              }}
-            />
-          </>
-        )}
+        <div className="absolute inset-0">
+          <LobbyRoom
+            sessionId={session.id}
+            players={players}
+            mePlayerId={mePlayer.id}
+            remotePositions={remotePositions}
+            onLocalPosition={handleLocalPosition}
+            onToggleReady={handleToggleReady}
+            isMeReady={mePlayer.ready}
+            isReadyBusy={isReadyBusy}
+            onPickFigure={handlePickFigure}
+            fill
+          />
+        </div>
 
         {/* Плашка дела */}
-        {amIPlayer && caseData && (
+        {caseData && (
           <div className="absolute top-0 inset-x-0 p-3 sm:p-5 flex justify-center pointer-events-none z-[60]">
             <div
               className="pointer-events-auto px-6 sm:px-10 py-3 sm:py-4
@@ -323,215 +328,105 @@ export function RoomPage() {
         )}
 
         {/* Нижний HUD */}
-        {amIPlayer && (
-          <div className="absolute bottom-0 inset-x-0 p-3 sm:p-6 pointer-events-none z-[60]">
-            <div className="mx-auto max-w-[1280px] pointer-events-auto">
-              <div
-                className="relative flex items-stretch flex-wrap
-                           border border-brass/40 bg-ink/85 backdrop-blur-sm
-                           divide-x divide-brass/25"
-                style={{
-                  boxShadow:
-                    'inset 0 1px 0 rgba(201,162,74,0.14), ' +
-                    '0 14px 46px rgba(0,0,0,0.75)',
-                }}
-              >
-                <Corner pos="tl" />
-                <Corner pos="tr" />
-                <Corner pos="bl" />
-                <Corner pos="br" />
+        <div className="absolute bottom-0 inset-x-0 p-3 sm:p-6 pointer-events-none z-[60]">
+          <div className="mx-auto max-w-[1280px] pointer-events-auto">
+            <div
+              className="relative flex items-stretch flex-wrap
+                         border border-brass/40 bg-ink/85 backdrop-blur-sm
+                         divide-x divide-brass/25"
+              style={{
+                boxShadow:
+                  'inset 0 1px 0 rgba(201,162,74,0.14), ' +
+                  '0 14px 46px rgba(0,0,0,0.75)',
+              }}
+            >
+              <Corner pos="tl" />
+              <Corner pos="tr" />
+              <Corner pos="bl" />
+              <Corner pos="br" />
 
-                <div className="flex items-center gap-3 sm:gap-4 px-4 sm:px-7 py-3 sm:py-4">
-                  <PeopleIcon />
-                  <div className="flex flex-col leading-tight">
-                    <span className="type text-[11px] sm:text-[13px] uppercase tracking-[0.28em] text-brass">
-                      В комнате
-                    </span>
-                    <span className="font-poster text-2xl sm:text-3xl text-bone tracking-wide">
-                      {playerCountLabel}
-                    </span>
-                  </div>
+              <div className="flex items-center gap-3 sm:gap-4 px-4 sm:px-7 py-3 sm:py-4">
+                <PeopleIcon />
+                <div className="flex flex-col leading-tight">
+                  <span className="type text-[11px] sm:text-[13px] uppercase tracking-[0.28em] text-brass">
+                    В комнате
+                  </span>
+                  <span className="font-poster text-2xl sm:text-3xl text-bone tracking-wide">
+                    {playerCountLabel}
+                  </span>
                 </div>
-
-                <div className="flex items-center gap-3 sm:gap-4 px-4 sm:px-7 py-3 sm:py-4">
-                  <KeyIcon />
-                  <div className="flex flex-col leading-tight min-w-0">
-                    <span className="type text-[11px] sm:text-[13px] uppercase tracking-[0.28em] text-brass">
-                      Код комнаты
-                    </span>
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      <span className="font-mono text-lg sm:text-xl text-bone tracking-[0.24em]">
-                        {session.roomCode}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(session.roomCode, 'code')}
-                        title="Скопировать код"
-                        className="text-brass/70 hover:text-brass transition-colors cursor-pointer"
-                      >
-                        <CopyIcon />
-                      </button>
-                      {copiedCode && (
-                        <span className="type text-[11px] uppercase tracking-[0.22em] text-brass">
-                          ✓
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="hidden md:flex items-center gap-4 px-5 sm:px-7 py-4 flex-1 min-w-0">
-                  <LinkIcon />
-                  <div className="flex flex-col leading-tight min-w-0 flex-1">
-                    <span className="type text-[11px] sm:text-[13px] uppercase tracking-[0.28em] text-brass">
-                      Ссылка на комнату
-                    </span>
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="font-mono text-[15px] text-bone truncate">
-                        {inviteUrl}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(inviteUrl, 'link')}
-                        title="Скопировать ссылку"
-                        className="text-brass/70 hover:text-brass transition-colors cursor-pointer shrink-0"
-                      >
-                        <CopyIcon />
-                      </button>
-                      {copiedLink && (
-                        <span className="type text-[11px] uppercase tracking-[0.22em] text-brass shrink-0">
-                          ✓
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <Link
-                  to="/my-sessions"
-                  className="flex items-center gap-2 sm:gap-3 px-4 sm:px-7 py-3 sm:py-4
-                             type text-[13px] sm:text-[15px] uppercase tracking-[0.28em]
-                             text-bone hover:text-brass hover:bg-brass/5
-                             transition-colors shrink-0 ml-auto"
-                >
-                  <ExitIcon />
-                  <span>Выйти</span>
-                </Link>
               </div>
+
+              <div className="flex items-center gap-3 sm:gap-4 px-4 sm:px-7 py-3 sm:py-4">
+                <KeyIcon />
+                <div className="flex flex-col leading-tight min-w-0">
+                  <span className="type text-[11px] sm:text-[13px] uppercase tracking-[0.28em] text-brass">
+                    Код комнаты
+                  </span>
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <span className="font-mono text-lg sm:text-xl text-bone tracking-[0.24em]">
+                      {session.roomCode}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(session.roomCode, 'code')}
+                      title="Скопировать код"
+                      className="text-brass/70 hover:text-brass transition-colors cursor-pointer"
+                    >
+                      <CopyIcon />
+                    </button>
+                    {copiedCode && (
+                      <span className="type text-[11px] uppercase tracking-[0.22em] text-brass">
+                        ✓
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="hidden md:flex items-center gap-4 px-5 sm:px-7 py-4 flex-1 min-w-0">
+                <LinkIcon />
+                <div className="flex flex-col leading-tight min-w-0 flex-1">
+                  <span className="type text-[11px] sm:text-[13px] uppercase tracking-[0.28em] text-brass">
+                    Ссылка на комнату
+                  </span>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="font-mono text-[15px] text-bone truncate">
+                      {inviteUrl}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(inviteUrl, 'link')}
+                      title="Скопировать ссылку"
+                      className="text-brass/70 hover:text-brass transition-colors cursor-pointer shrink-0"
+                    >
+                      <CopyIcon />
+                    </button>
+                    {copiedLink && (
+                      <span className="type text-[11px] uppercase tracking-[0.22em] text-brass shrink-0">
+                        ✓
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Link
+                to="/my-sessions"
+                className="flex items-center gap-2 sm:gap-3 px-4 sm:px-7 py-3 sm:py-4
+                           type text-[13px] sm:text-[15px] uppercase tracking-[0.28em]
+                           text-bone hover:text-brass hover:bg-brass/5
+                           transition-colors shrink-0 ml-auto"
+              >
+                <ExitIcon />
+                <span>Выйти</span>
+              </Link>
             </div>
           </div>
-        )}
-
-        {!amIPlayer && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
-            <JoinForm
-              roomCode={session.roomCode}
-              playersCount={players.length}
-              joinName={joinName}
-              isJoining={isJoining}
-              joinError={joinError}
-              setJoinName={setJoinName}
-              onSubmit={handleJoin}
-            />
-          </div>
-        )}
+        </div>
 
       </div>
     </>
-  );
-}
-
-/* ============================================================
-   Форма входа
-   ============================================================ */
-
-function JoinForm({
-  roomCode,
-  playersCount,
-  joinName,
-  isJoining,
-  joinError,
-  setJoinName,
-  onSubmit,
-}: {
-  roomCode: string;
-  playersCount: number;
-  joinName: string;
-  isJoining: boolean;
-  joinError: string | null;
-  setJoinName: (v: string) => void;
-  onSubmit: (e: FormEvent) => void;
-}) {
-  return (
-    <form
-      onSubmit={onSubmit}
-      className="paper paper-old p-7 md:p-9 max-w-xl w-full relative"
-    >
-      <div className="pin brass" style={{ top: -6, left: 32, zIndex: 20 }} />
-
-      <div className="absolute -top-3 -right-3 rotate-[6deg] z-10">
-        <span className="stamp-red text-xs">{roomCode}</span>
-      </div>
-
-      <div className="flex items-baseline justify-between mb-6 pb-3
-                      border-b border-ink-text/20">
-        <span className="type text-[12px] uppercase tracking-[0.28em]
-                         text-ink-text-soft">
-          Вход в комнату
-        </span>
-        <span className="type text-[12px] uppercase tracking-[0.28em] text-blood">
-          {playersCount} в деле
-        </span>
-      </div>
-
-      <h2 className="text-4xl md:text-5xl text-ink-text leading-[0.9] mb-3">
-        Представьтесь
-      </h2>
-      <div className="hand text-xl md:text-2xl text-blood rotate-[-1deg] mb-8">
-        команда ждёт
-      </div>
-
-      <label className="flex flex-col gap-2 mb-7">
-        <span className="type text-[12px] uppercase tracking-[0.24em]
-                         text-ink-text-dim">
-          Ваше имя
-        </span>
-        <input
-          value={joinName}
-          onChange={(e) => setJoinName(e.target.value)}
-          required
-          minLength={2}
-          maxLength={50}
-          className="px-0 py-2 bg-transparent border-b-2
-                     border-ink-text/40 text-ink-text text-lg
-                     font-type focus:outline-none focus:border-blood"
-          placeholder="Как вас звать?"
-        />
-      </label>
-
-      <p className="mb-6 type text-[12px] uppercase tracking-[0.24em] text-ink-text-dim">
-        Фигурку выдадим сами — сменить можно в шкафу лобби
-      </p>
-
-      {joinError && (
-        <div className="mb-4 px-3 py-2 bg-blood/10 border-l-4 border-blood
-                        type text-sm text-blood">
-          {joinError}
-        </div>
-      )}
-
-      <button
-        type="submit"
-        disabled={isJoining}
-        className="type text-[13px] uppercase tracking-[0.24em]
-                   bg-blood text-paper px-7 py-3.5
-                   hover:bg-blood-hover transition-colors
-                   disabled:opacity-40 disabled:cursor-not-allowed
-                   cursor-pointer"
-      >
-        {isJoining ? 'Входим…' : 'Войти в комнату →'}
-      </button>
-    </form>
   );
 }
 
@@ -609,4 +504,4 @@ function Corner({ pos }: { pos: 'tl' | 'tr' | 'bl' | 'br' }) {
   else if (pos === 'bl') { style.bottom = -1; style.left = -1; style.borderBottomWidth = 2; style.borderLeftWidth = 2; }
   else { style.bottom = -1; style.right = -1; style.borderBottomWidth = 2; style.borderRightWidth = 2; }
   return <span style={style} />;
-}
+}``

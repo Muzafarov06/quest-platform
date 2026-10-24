@@ -26,30 +26,16 @@ public class MediaController {
         this.mediaService = mediaService;
     }
 
-    /** Получить presigned URL одного медиа по ID. */
     @GetMapping("/api/media/{id}")
     public ResponseEntity<MediaResponse> getById(@PathVariable UUID id) {
         return ResponseEntity.ok(mediaService.getById(id));
     }
 
-    /** Все медиа кейса. */
     @GetMapping("/api/cases/{caseId}/media")
     public ResponseEntity<List<MediaResponse>> listByCase(@PathVariable UUID caseId) {
         return ResponseEntity.ok(mediaService.getByCase(caseId));
     }
 
-    /**
-     * Получить presigned PUT URL для прямой загрузки в S3.
-     *
-     * <p>Браузер:
-     * <ol>
-     *   <li>POST /api/admin/media/presign → получает uploadUrl и mediaId;</li>
-     *   <li>PUT {uploadUrl} с телом файла — грузит напрямую в S3;</li>
-     *   <li>mediaId сразу использует в UI.</li>
-     * </ol>
-     *
-     * <p>Только ADMIN.</p>
-     */
     @PostMapping("/api/admin/media/presign")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<PresignUploadResponse> presignUpload(
@@ -59,14 +45,6 @@ public class MediaController {
         return ResponseEntity.ok(mediaService.createPresignedUpload(request, user));
     }
 
-    /**
-     * Multipart-загрузка через backend.
-     *
-     * <p>Оставлена как fallback — но на больших файлах работает медленнее,
-     * чем прямая загрузка через presigned PUT. Используй /presign.</p>
-     *
-     * <p>Только ADMIN. Обычный пользователь получит 403.</p>
-     */
     @PostMapping("/api/admin/cases/{caseId}/media")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<MediaResponse> upload(
@@ -75,14 +53,10 @@ public class MediaController {
             @AuthenticationPrincipal User user
     ) {
         CaseMedia media = mediaService.upload(caseId, file, user);
-        return ResponseEntity.status(HttpStatus.CREATED).body(mediaService.getById(media.getId()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(mediaService.getById(media.getId()));
     }
 
-    /**
-     * Удалить медиа.
-     *
-     * <p>Только ADMIN.</p>
-     */
     @DeleteMapping("/api/admin/media/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {

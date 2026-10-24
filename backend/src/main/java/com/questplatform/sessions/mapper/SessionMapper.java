@@ -1,5 +1,6 @@
 package com.questplatform.sessions.mapper;
 
+import com.questplatform.common.s3.S3UrlService;
 import com.questplatform.sessions.dto.SessionPlayerResponse;
 import com.questplatform.sessions.dto.SessionResponse;
 import com.questplatform.sessions.entity.GameSession;
@@ -11,8 +12,17 @@ import java.util.List;
 @Component
 public class SessionMapper {
 
+    private final S3UrlService s3UrlService;
+
+    public SessionMapper(S3UrlService s3UrlService) {
+        this.s3UrlService = s3UrlService;
+    }
+
     public SessionResponse toResponse(GameSession s) {
-        if (s == null) return null;
+        if (s == null) {
+            return null;
+        }
+
         return new SessionResponse(
                 s.getId(),
                 s.getCaseId(),
@@ -27,18 +37,23 @@ public class SessionMapper {
     }
 
     public List<SessionResponse> toResponseList(List<GameSession> sessions) {
-        return sessions.stream().map(this::toResponse).toList();
+        return sessions.stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     public SessionPlayerResponse toPlayerResponse(SessionPlayer p) {
-        if (p == null) return null;
+        if (p == null) {
+            return null;
+        }
+
         return new SessionPlayerResponse(
                 p.getId(),
                 p.getSessionId(),
                 p.getUserId(),
                 p.getGuestToken(),
                 p.getDisplayName(),
-                p.getAvatarKey(),
+                s3UrlService.getFileUrl(p.getAvatarKey()),
                 p.getPosX(),
                 p.getPosY(),
                 p.getFacing(),
@@ -51,6 +66,8 @@ public class SessionMapper {
     }
 
     public List<SessionPlayerResponse> toPlayerResponseList(List<SessionPlayer> players) {
-        return players.stream().map(this::toPlayerResponse).toList();
+        return players.stream()
+                .map(this::toPlayerResponse)
+                .toList();
     }
 }
