@@ -11,6 +11,15 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import java.net.URI;
 
+/**
+ * Конфигурация S3-клиента и S3Presigner.
+ *
+ * pathStyleAccessEnabled(true) — Railway Buckets используют path-style URL:
+ * https://t3.storageapi.dev/<bucket>/<key>
+ *
+ * chunkedEncodingEnabled(false) — отключает aws-chunked encoding,
+ * который некоторые S3-совместимые хранилища не поддерживают.
+ */
 @Configuration
 public class S3Config {
 
@@ -22,12 +31,10 @@ public class S3Config {
                         AwsBasicCredentials.create(props.getAccessKey(), props.getSecretKey())
                 ))
                 .region(Region.of(props.getRegion()))
-                .serviceConfiguration(
-                        S3Configuration.builder()
-                                .pathStyleAccessEnabled(false)
-                                .chunkedEncodingEnabled(false)
-                                .build()
-                )
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .chunkedEncodingEnabled(false)
+                        .build())
                 .build();
     }
 
@@ -39,12 +46,10 @@ public class S3Config {
                         AwsBasicCredentials.create(props.getAccessKey(), props.getSecretKey())
                 ))
                 .region(Region.of(props.getRegion()))
-                .serviceConfiguration(
-                        S3Configuration.builder()
-                                .pathStyleAccessEnabled(false)
-                                .chunkedEncodingEnabled(false)
-                                .build()
-                )
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .chunkedEncodingEnabled(false)
+                        .build())
                 .build();
     }
 }
